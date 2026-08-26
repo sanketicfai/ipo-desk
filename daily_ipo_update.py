@@ -18,10 +18,13 @@ DATA SOURCES (v8):
                              after 3 days). Running extra times per day never
                              re-fetches old names — daily limits stay safe.
 
-STILL TRUE FROM v6/v7: run the script once every hour (Windows Task Scheduler,
-9 AM-10 PM) for the GMP twice-daily average and the hourly subscription log on
-closing days. The script decides what to record from the current time + each
-IPO's own dates; extra runs are harmless.
+RUN FREQUENCY (v9): schedule the script every 30 MINUTES from 9 AM to 10 PM
+(Windows Task Scheduler, repeat every 30 min). Every run logs its GMP reading
+(daily average = mean of the whole day) and on an IPO's closing day the
+subscription is logged in half-hour slots 09:00-17:00, so the desk can show
+the QIB participation % rise per half hour on the last day. The script
+decides what to record from the current time + each IPO's own dates; extra
+runs are harmless (same slot/hour is overwritten).
 
 Mainboard only (SME auto-skipped). Independent sources, not official NSE/BSE
 feeds — sanity-check occasionally.
@@ -33,7 +36,7 @@ import json
 import os
 import re
 import time
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs, unquote
 
@@ -48,10 +51,14 @@ REQUEST_DELAY_SECONDS = 1.0
 
 GMP_SESSION_LOG_PATH = Path("gmp_session_log.json")   # raw morning/evening readings
 OLD_GMP_LOG_PATH = Path("gmp_log.json")                # earlier script version's log file
-QIB_INTRADAY_LOG_PATH = Path("qib_intraday_log.json")  # hourly readings on closing day
+QIB_INTRADAY_LOG_PATH = Path("qib_intraday_log.json")  # half-hourly readings on closing day
+PRICE_HISTORY_LOG_PATH = Path("price_history_log.json") # daily actual price AFTER listing (for the graph)
 OUTPUT_JSON_PATH = Path("ipo_data.json")
 FRESH_OFS_CACHE_PATH = Path("fresh_ofs_cache.json")    # name -> split, fetched ONCE ever
-NOW = datetime.now()
+# GitHub's servers run on UTC — pin every logging window to INDIAN time,
+# otherwise the half-hour subscription slots land in the wrong bucket.
+IST = timezone(timedelta(hours=5, minutes=30))   # India has no DST, fixed offset is safe
+NOW = datetime.now(IST)
 TODAY = NOW.date()
 CURRENT_HOUR = NOW.hour
 
@@ -644,10 +651,13 @@ def fetch_ipo_detail(slug, item_status):
 # STEP 3 — GMP twice-daily session log -> daily average
 # ------------------------------------------------------------------ #
 def update_gmp_session_log(entries):
-    """entries: list of (name, gmp_value). Bucket into 'morning' (before 3pm)
-    or 'evening' (3pm+) session for today; overwrite same session if re-run."""
+    """entries: list of (name, gmp_value). With hourly scheduled runs this
+    logs ONE READING PER HOUR in IST (bucket = the hour, e.g. "09h", "14h"); the
+    daily average in ipo_data.json is the mean of ALL readings of that day,
+    so the GMP graph gets smoother the more often the script runs.
+    Re-running in the same hour overwrites that hour's reading."""
     log = json.loads(GMP_SESSION_LOG_PATH.read_text()) if GMP_SESSION_LOG_PATH.exists() else {}
-    session = "morning" if CURRENT_HOUR < 15 else "evening"
+    session = f"{CURRENT_HOUR:02d}h"
     for name, val in entries:
         if val is None:
             continue
@@ -669,9 +679,15 @@ def compute_daily_averages(session_log_for_ipo):
 # STEP 4 — hourly subscription log, only on an IPO's own closing day, 9am-6pm
 # ------------------------------------------------------------------ #
 def update_qib_intraday_log(ipos_detail):
+    """Closing-day intraday subscription, logged in HALF-HOUR slots from
+    09:00 to 17:00 IST (slot = 9.0, 9.5, 10.0, ...). Run the script every 30
+    minutes (or at least on the hour AND half hour) so the desk can chart
+    the QIB participation rise per half hour on the last day.
+    Re-running in the same slot overwrites that slot's reading."""
     log = json.loads(QIB_INTRADAY_LOG_PATH.read_text()) if QIB_INTRADAY_LOG_PATH.exists() else {}
-    if not (9 <= CURRENT_HOUR <= 18):
+    if not (9 <= CURRENT_HOUR <= 17):
         return log  # outside the tracked window, nothing to log this run
+    slot = CURRENT_HOUR + (0.5 if NOW.minute >= 30 else 0.0)
     for detail in ipos_detail:
         close_date = detail.get("timeline", {}).get("close")
         if close_date != str(TODAY):
@@ -679,16 +695,38 @@ def update_qib_intraday_log(ipos_detail):
         subs = detail.get("subscription_shares") or {}
         name = detail["name"]
         log.setdefault(name, [])
-        log[name] = [e for e in log[name] if not (e["date"] == str(TODAY) and e["hour"] == CURRENT_HOUR)]
+        log[name] = [e for e in log[name] if not (e["date"] == str(TODAY) and e.get("slot", e.get("hour")) == slot)]
         log[name].append({
             "date": str(TODAY),
-            "hour": CURRENT_HOUR,
+            "slot": slot,               # e.g. 9.0 = 09:00, 13.5 = 13:30
+            "hour": int(slot),          # kept for backward compatibility
             "qib_times": subs.get("QIB", {}).get("times"),
             "nii_times": subs.get("NII", {}).get("times"),
             "rii_times": subs.get("RII", {}).get("times"),
             "total_times": subs.get("Total", {}).get("times"),
         })
     QIB_INTRADAY_LOG_PATH.write_text(json.dumps(log, indent=2))
+    return log
+
+
+def update_price_history_log(ipos_detail):
+    """Once an IPO is LISTED, keep storing its actual market price ONE ENTRY
+    PER DAY (the last run of the day wins). The desk draws the GMP line
+    (daily average) up to listing day and then continues the same line with
+    this real price for the next ~10 days — one continuous story."""
+    log = json.loads(PRICE_HISTORY_LOG_PATH.read_text()) if PRICE_HISTORY_LOG_PATH.exists() else {}
+    for detail in ipos_detail:
+        if detail.get("status") != "LISTED":
+            continue
+        price = detail.get("current_price")
+        if price is None:
+            continue
+        name = detail["name"]
+        log.setdefault(name, [])
+        log[name] = [e for e in log[name] if e["date"] != str(TODAY)]
+        log[name].append({"date": str(TODAY), "price": price})
+        log[name] = sorted(log[name], key=lambda e: e["date"])[-30:]  # keep ~a month
+    PRICE_HISTORY_LOG_PATH.write_text(json.dumps(log, indent=2))
     return log
 
 
@@ -722,7 +760,8 @@ def main():
         detail["slug"] = item["slug"]
         detail["status"] = item["status"]
         detail["gmp_latest"] = item["gmp_snapshot"]
-        gmp_entries.append((detail["name"], item["gmp_snapshot"]))
+        if detail["status"] != "LISTED":          # GMP stops existing after listing
+            gmp_entries.append((detail["name"], item["gmp_snapshot"]))
         ipos_out.append(detail)
         time.sleep(REQUEST_DELAY_SECONDS)
 
@@ -736,11 +775,15 @@ def main():
     for ipo in ipos_out:
         ipo["qib_intraday"] = qib_log.get(ipo["name"], [])
 
+    price_log = update_price_history_log(ipos_out)
+    for ipo in ipos_out:
+        ipo["price_history"] = price_log.get(ipo["name"], [])
+
     print("Enriching Fresh Issue / OFS (FinAPI once per run + one-time cached lookups)...")
     enrich_issue_splits(ipos_out)
 
     OUTPUT_JSON_PATH.write_text(json.dumps({
-        "generated_at": datetime.now().isoformat(),
+        "generated_at": datetime.now(IST).isoformat(),"generated_ist": NOW.strftime("%d %b %Y, %H:%M IST"),
         "ipos": ipos_out,
     }, indent=2))
     print(f"Done. Wrote {len(ipos_out)} mainboard IPOs to {OUTPUT_JSON_PATH}")
