@@ -345,7 +345,7 @@ def enrich_issue_splits(ipos_out):
         fresh = ofs = total = None
         if url:
             try:
-                page = requests.get(url, headers=IPOC_HEADERS, timeout=20)
+                page = get_with_retries(url, headers=IPOC_HEADERS)
                 page.raise_for_status()
                 fresh, ofs, total = parse_split_from_page(page.text)
                 time.sleep(REQUEST_DELAY_SECONDS)
@@ -401,8 +401,25 @@ def migrate_old_gmp_log():
 # ------------------------------------------------------------------ #
 # STEP 1 — homepage list
 # ------------------------------------------------------------------ #
+def get_with_retries(url, headers=None, tries=3, timeout=25):
+    """GET with automatic retries — one transient network hiccup (or the site
+    briefly blocking GitHub's IP) must not kill the whole run."""
+    last = None
+    for attempt in range(1, tries + 1):
+        try:
+            resp = requests.get(url, headers=headers, timeout=timeout)
+            resp.raise_for_status()
+            return resp
+        except Exception as e:
+            last = e
+            print(f"  [!] attempt {attempt}/{tries} failed for {url}: {e}")
+            if attempt < tries:
+                time.sleep(15 * attempt)
+    raise last
+
+
 def fetch_ipo_list():
-    resp = requests.get(f"{BASE_URL}/", headers=HEADERS, timeout=20)
+    resp = get_with_retries(f"{BASE_URL}/", headers=HEADERS)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -475,7 +492,7 @@ def parse_application_size_cell(text):
 
 
 def fetch_ipo_detail(slug, item_status):
-    resp = requests.get(f"{BASE_URL}/ipos/{slug}/", headers=HEADERS, timeout=20)
+    resp = get_with_retries(f"{BASE_URL}/ipos/{slug}/", headers=HEADERS)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -735,7 +752,12 @@ def main():
     migrate_old_gmp_log()
 
     print(f"[{NOW.isoformat(timespec='minutes')}] Fetching IPO list from trynarada.com...")
-    listing = fetch_ipo_list()
+    try:
+        listing = fetch_ipo_list()
+    except Exception as e:
+        print(f"[!] trynarada unreachable after retries ({e}) — keeping the previous ipo_data.json unchanged.")
+        print("    Desk keeps showing the last good data; next run will try again.")
+        return
     print(f"  -> {len(listing)} total entries across all statuses (mainboard + SME)")
 
     ipos_out = []
