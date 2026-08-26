@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IPO Desk — live IPO dashboard</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+<style>
+  :root{
+    --bg:#eef1f6; --panel:#ffffff; --panel2:#f6f8fb; --line:#e2e8f0; --line2:#cbd5e1;
+    --text:#0f172a; --muted:#64748b; --dim:#94a3b8;
+    --green:#059669; --green2:#10b981; --amber:#d97706; --red:#dc2626; --blue:#2563eb;
+    --purple:#7c3aed; --cyan:#0891b2; --teal:#0d9488;
+    --shadow:0 1px 3px rgba(15,23,42,.06), 0 1px 2px rgba(15,23,42,.04);
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; font-size:14px}
+  a{color:var(--blue); text-decoration:none} a:hover{text-decoration:underline}
+  ::placeholder{color:#94a3b8}
+  code{background:#eef2f7; padding:1px 5px; border-radius:4px; font-size:.92em}
+
+  /* ---------- header ---------- */
+  header{position:sticky; top:0; z-index:50; background:rgba(255,255,255,.94); backdrop-filter:blur(8px); border-bottom:1px solid var(--line); box-shadow:var(--shadow)}
+  .hrow{max-width:1400px; margin:0 auto; padding:12px 18px; display:flex; align-items:center; gap:12px; flex-wrap:wrap}
+  .logo{font-size:18px; font-weight:800; letter-spacing:.3px; white-space:nowrap}
+  .logo span{color:var(--green)}
+  .pill{display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:700; padding:3px 10px; border-radius:99px; border:1px solid var(--line2); color:var(--muted); letter-spacing:.4px}
+  .pill .dot{width:7px; height:7px; border-radius:50%; background:var(--muted)}
+  .pill.live{color:#fff; background:var(--green); border-color:var(--green)}
+  .pill.live .dot{background:#fff; animation:pulse 1.6s infinite}
+  .pill.file{color:var(--amber); border-color:var(--amber)}
+  .pill.file .dot{background:var(--amber)}
+  .pill.sample,.pill.shared{color:var(--purple); border-color:var(--purple)}
+  .pill.sample .dot,.pill.shared .dot{background:var(--purple)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .clock{font-variant-numeric:tabular-nums; color:var(--muted); font-size:12px}
+  .spacer{flex:1}
+  .hbtn{background:#fff; border:1px solid var(--line2); color:var(--text); padding:7px 12px; border-radius:8px; font-size:12.5px; cursor:pointer; font-weight:600}
+  .hbtn:hover{border-color:var(--blue); color:var(--blue)}
+  .hbtn.primary{background:var(--blue); border-color:var(--blue); color:#fff}
+  .hbtn.primary:hover{background:#1d4ed8; color:#fff}
+  #search{background:#fff; border:1px solid var(--line2); color:var(--text); padding:7px 12px; border-radius:8px; font-size:13px; width:190px; outline:none}
+  #search:focus{border-color:var(--blue)}
+  select{background:#fff; border:1px solid var(--line2); color:var(--text); padding:7px 8px; border-radius:8px; font-size:12.5px; outline:none; cursor:pointer}
+  .vseg{display:inline-flex; border:1px solid var(--line2); border-radius:8px; overflow:hidden}
+  .vseg button{background:#fff; border:none; color:var(--muted); padding:7px 13px; font-size:12.5px; font-weight:700; cursor:pointer}
+  .vseg button.on{background:var(--text); color:#fff}
+  .subrow{max-width:1400px; margin:0 auto; padding:0 18px 10px; display:flex; gap:14px; flex-wrap:wrap; font-size:11.5px; color:var(--muted)}
+
+  /* ---------- tabs ---------- */
+  .tabs{max-width:1400px; margin:14px auto 0; padding:0 18px; display:flex; gap:8px; flex-wrap:wrap}
+  .tab{background:#fff; border:1px solid var(--line2); color:var(--muted); padding:6px 14px; border-radius:99px; font-size:12.5px; font-weight:700; cursor:pointer; display:flex; gap:7px; align-items:center}
+  .tab .n{background:var(--panel2); border:1px solid var(--line); border-radius:99px; padding:1px 7px; font-size:11px; color:var(--muted)}
+  .tab.on{background:var(--text); border-color:var(--text); color:#fff}
+  .tab.on .n{background:rgba(255,255,255,.18); border-color:transparent; color:#fff}
+
+  /* ---------- cards grid ---------- */
+  .grid{max-width:1400px; margin:16px auto 30px; padding:0 18px; display:grid; grid-template-columns:repeat(auto-fill,minmax(370px,1fr)); gap:16px}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:14px; overflow:hidden; box-shadow:var(--shadow); transition:border-color .15s}
+  .card:hover{border-color:var(--line2)}
+  .chead{padding:14px 16px 10px; display:flex; align-items:flex-start; gap:10px}
+  .cname{font-size:15px; font-weight:750; line-height:1.25; flex:1}
+  .badge{font-size:10px; font-weight:800; letter-spacing:.6px; padding:3px 9px; border-radius:6px; white-space:nowrap; margin-top:1px}
+  .b-OPEN{background:#ecfdf5; color:var(--green); border:1px solid #a7f3d0}
+  .b-UPCOMING{background:#eff6ff; color:var(--blue); border:1px solid #bfdbfe}
+  .b-CLOSED{background:#fffbeb; color:var(--amber); border:1px solid #fde68a}
+  .b-ALLOTTED{background:#f5f3ff; color:var(--purple); border:1px solid #ddd6fe}
+  .b-LISTED{background:#f0fdfa; color:var(--teal); border:1px solid #99f6e4}
+  .cbody{padding:0 16px 12px}
+  .stat4{display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:8px; margin-bottom:12px}
+  .stat{background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:7px 9px}
+  .stat .k{font-size:10px; color:var(--muted); letter-spacing:.4px; text-transform:uppercase; margin-bottom:2px; white-space:nowrap}
+  .stat .v{font-size:13px; font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .rowline{display:flex; align-items:center; gap:8px; margin:9px 0; flex-wrap:wrap}
+  .chip{font-size:11.5px; font-weight:700; padding:3px 9px; border-radius:6px; font-variant-numeric:tabular-nums; white-space:nowrap}
+  .chip.ghost{background:var(--panel2); border:1px solid var(--line2); color:var(--text)}
+  .chip.up{background:#ecfdf5; color:var(--green); border:1px solid #a7f3d0}
+  .chip.down{background:#fef2f2; color:var(--red); border:1px solid #fecaca}
+  .chip.flat{background:var(--panel2); color:var(--muted); border:1px solid var(--line2)}
+  .gmpwrap{display:flex; align-items:center; gap:12px; background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:8px 12px; margin:4px 0 10px}
+  .gmpnum{font-size:12px; color:var(--muted)}
+  .gmpnum b{font-size:16px; color:var(--text); font-variant-numeric:tabular-nums}
+  .spark{flex:1; min-width:80px}
+
+  /* subscription bars */
+  .subs{display:flex; flex-direction:column; gap:6px; margin:6px 0 4px}
+  .subrow2{display:grid; grid-template-columns:54px 1fr 118px; gap:10px; align-items:center; font-size:11.5px}
+  .subrow2 .lbl{color:var(--muted); font-weight:700; letter-spacing:.4px}
+  .bar{height:8px; background:#eef2f7; border:1px solid var(--line); border-radius:99px; overflow:hidden}
+  .bar i{display:block; height:100%; border-radius:99px}
+  .subrow2 .x{font-weight:800; text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap}
+  .x.lo{color:var(--red)} .x.mid{color:var(--amber)} .x.ok{color:var(--green)} .x.hi{color:#047857}
+  .x .apps{color:var(--dim); font-weight:600; font-size:10.5px}
+  .srcnote{font-size:10.5px; color:var(--dim); margin-top:6px}
+
+  /* timeline strip */
+  .tstrip{display:grid; grid-template-columns:repeat(4,1fr); gap:4px; margin:12px 0 2px}
+  .tstep{background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:6px 4px; text-align:center}
+  .tstep .d{font-size:10.5px; color:var(--muted); font-weight:600}
+  .tstep .l{font-size:9.5px; letter-spacing:.4px; text-transform:uppercase; color:var(--dim); margin-top:2px}
+  .tstep.today{border-color:#fcd34d; background:#fffbeb}
+  .tstep.today .d{color:var(--amber)}
+  .tstep.past{opacity:.45}
+
+  .expbtn{width:100%; background:none; border:none; border-top:1px solid var(--line); color:var(--muted); font-size:12px; font-weight:700; padding:9px; cursor:pointer; letter-spacing:.3px}
+  .expbtn:hover{color:var(--text); background:var(--panel2)}
+  .drawer{display:none; border-top:1px solid var(--line); background:var(--panel2); padding:12px 16px 16px}
+  .drawer.open{display:block}
+  .dsec{margin-bottom:14px}
+  .dsec h4{font-size:10.5px; letter-spacing:.8px; text-transform:uppercase; color:var(--muted); margin-bottom:8px}
+  .kv{display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:6px}
+  .kv .cell{background:#fff; border:1px solid var(--line); border-radius:8px; padding:6px 9px}
+  .kv .cell .k{font-size:10px; color:var(--muted)} .kv .cell .v{font-size:12.5px; font-weight:700; font-variant-numeric:tabular-nums}
+  table.mini{width:100%; border-collapse:collapse; font-size:11.5px; font-variant-numeric:tabular-nums; background:#fff; border:1px solid var(--line); border-radius:8px}
+  table.mini th{color:var(--muted); text-align:right; font-weight:600; padding:5px 8px; border-bottom:1px solid var(--line2); font-size:10.5px}
+  table.mini th:first-child{text-align:left}
+  table.mini td{padding:4px 8px; text-align:right; border-bottom:1px solid var(--line)}
+  table.mini tr:last-child td{border-bottom:none}
+  table.mini td:first-child{text-align:left; color:var(--muted)}
+  .links{display:flex; gap:12px; flex-wrap:wrap; font-size:12px}
+  .intralegend{display:flex; gap:12px; flex-wrap:wrap; font-size:10.5px; color:var(--muted); margin-bottom:4px}
+  .intralegend i{display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:4px}
+
+  /* ---------- list view ---------- */
+  .tablewrap{max-width:1400px; margin:16px auto 30px; padding:0 18px; overflow-x:auto}
+  .ltable{width:100%; border-collapse:separate; border-spacing:0; background:#fff; border:1px solid var(--line); border-radius:12px; overflow:hidden; box-shadow:var(--shadow); font-size:12.5px; min-width:1080px}
+  .ltable thead th{position:sticky; top:0; background:var(--panel2); color:var(--muted); font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; text-align:right; padding:9px 10px; border-bottom:1px solid var(--line2); white-space:nowrap; z-index:5}
+  .ltable thead th:nth-child(1){text-align:left; position:sticky; left:0; z-index:6}
+  .ltable thead th:nth-child(2){text-align:left}
+  .ltable td{padding:9px 10px; text-align:right; border-bottom:1px solid var(--line); font-variant-numeric:tabular-nums; white-space:nowrap}
+  .ltable td:first-child{text-align:left; position:sticky; left:0; background:#fff; font-weight:700; max-width:250px; overflow:hidden; text-overflow:ellipsis}
+  .ltable td:nth-child(2){text-align:left}
+  .ltable tbody tr.lrow{cursor:pointer}
+  .ltable tbody tr.lrow:hover td{background:#f8fafc}
+  .ltable tbody tr.lrow:hover td:first-child{background:#f8fafc}
+  .ltable tr.ldetail td{background:var(--panel2); padding:0; white-space:normal}
+  .ltable tr.ldetail .drawer{display:block; padding:14px 18px}
+  .ltable .pos{color:var(--green); font-weight:700}
+  .ltable .neg{color:var(--red); font-weight:700}
+  .ltable .dim{color:var(--dim)}
+
+  footer{max-width:1400px; margin:0 auto; padding:18px; color:var(--dim); font-size:11.5px; line-height:1.7; border-top:1px solid var(--line)}
+  footer b{color:var(--muted)}
+
+  #dropzone{position:fixed; inset:0; background:rgba(15,23,42,.75); border:3px dashed var(--green); z-index:100; display:none; align-items:center; justify-content:center; font-size:18px; font-weight:800; color:#fff}
+  .banner{max-width:1400px; margin:14px auto 0; padding:0 18px}
+  .banner .inner{background:#f5f3ff; border:1px solid #ddd6fe; border-radius:10px; padding:10px 14px; font-size:12.5px; color:#5b21b6}
+  .empty{max-width:1400px; margin:40px auto; text-align:center; color:var(--muted)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hrow">
+    <div class="logo">📊 IPO <span>Desk</span></div>
+    <div id="pill" class="pill"><span class="dot"></span><span id="pilltext">NO DATA</span></div>
+    <div class="clock" id="clock"></div>
+    <div class="spacer"></div>
+    <div class="vseg" title="Switch view">
+      <button id="v-cards" class="on">▦ Cards</button><button id="v-list">☰ List</button>
+    </div>
+    <input id="search" type="search" placeholder="Search company…">
+    <select id="sort" title="Sort order">
+      <option value="live">Sort: live first</option>
+      <option value="close">Sort: closing soon</option>
+      <option value="gmp">Sort: GMP % ↓</option>
+      <option value="size">Sort: issue size ↓</option>
+      <option value="gain">Sort: listing gain ↓</option>
+    </select>
+    <button class="hbtn" id="refreshbtn" title="Re-fetch ipo_data.json now">↻ Refresh</button>
+    <button class="hbtn" id="loadbtn" title="Load an ipo_data.json file manually">📁 Load</button>
+    <button class="hbtn primary" id="sharebtn" title="Download a single shareable HTML file with today's data embedded">🔗 Share</button>
+    <input type="file" id="fileinput" accept=".json,.html,application/json" hidden>
+  </div>
+  <div class="subrow">
+    <div id="datasrc">source: —</div>
+    <div id="countline"></div>
+    <div class="spacer"></div>
+    <div id="autorefresh"></div>
+  </div>
+</header>
+
+<div id="banner" class="banner" style="display:none"><div class="inner" id="bannertext"></div></div>
+<div class="tabs" id="tabs"></div>
+<div class="grid" id="grid"></div>
+<div id="empty" class="empty" style="display:none"></div>
+
+<footer>
+  <b>IPO Desk</b> — everything scraped from <a href="https://trynarada.com/">trynarada.com</a> (prices, live subscription, GMP, timeline).
+  Fresh Issue / OFS: fetched <b>once per IPO</b> (cached forever) via the FinAPI key with IPO Central as fallback — daily API limits are never burned on repeats.
+  Independent sources, not an official NSE/BSE feed — verify before acting.
+  <br><b>Live mode:</b> run <code>python -m http.server 8000</code> next to <code>ipo_data.json</code> and open <code>http://localhost:8000/ipo_desk.html</code> — auto-loads and re-fetches every 60 s.
+  <b>Sharing:</b> the <b>🔗 Share</b> button downloads a single self-contained HTML file with today's data embedded — send it to anyone; it opens in any browser, no setup.
+</footer>
+
+<div id="dropzone">⬇ Drop ipo_data.json to load it</div>
+
+<script>
+"use strict";
+/* ================= state ================= */
+const state = { data:null, mode:"none", tab:"ALL", q:"", sort:"live", view:"cards", timer:null, pollCountdown:60 };
+const TABS = [["ALL","All"],["OPEN","Open"],["UPCOMING","Upcoming"],["CLOSED","Closed"],["ALLOTTED","Allotted"],["LISTED","Listed"]];
+const ORDER = {OPEN:0, UPCOMING:1, CLOSED:2, ALLOTTED:3, LISTED:4};
+const $ = id => document.getElementById(id);
+
+/* ================= formatting helpers ================= */
+const esc = s => String(s==null?"":s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const nfIN = new Intl.NumberFormat("en-IN",{maximumFractionDigits:2});
+const nfIN0 = new Intl.NumberFormat("en-IN",{maximumFractionDigits:0});
+const money = n => n==null ? "—" : "₹"+nfIN.format(n);
+const cr = n => n==null ? "—" : nfIN.format(n)+" Cr";
+const pct = n => n==null ? "—" : (n>0?"+":"")+nfIN.format(n)+"%";
+const xfmt = t => t==null ? "—" : nfIN.format(t)+"×";
+function appsStr(v){
+  const n = typeof v==="string" ? parseFloat(v.replace(/,/g,"")) : v;
+  if(n==null||isNaN(n)) return "";
+  if(n>=1e7) return `(${(n/1e7).toFixed(2)} Cr apps)`;
+  if(n>=1e5) return `(${(n/1e5).toFixed(2)} L apps)`;
+  if(n>=1e3) return `(${(n/1e3).toFixed(1)}k apps)`;
+  return `(${n} apps)`;
+}
+function parseDate(iso){ if(!iso) return null; const p=iso.split("-").map(Number); return new Date(p[0],p[1]-1,p[2]); }
+function dayDiff(iso){ const d=parseDate(iso); if(!d) return null; const t=new Date(); t.setHours(0,0,0,0); return Math.round((d-t)/86400000); }
+function fdate(iso){ const d=parseDate(iso); if(!d) return "—"; return d.toLocaleDateString("en-IN",{day:"numeric",month:"short"}); }
+function fdatey(iso){ const d=parseDate(iso); if(!d) return "—"; return d.toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"}); }
+const dayN = iso => { const dd=dayDiff(iso); return dd==null?null:dd; };
+const nowISO = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+
+/* ================= tiny SVG charts ================= */
+function sparkSVG(vals,w=130,h=36,color="#10b981"){
+  if(!vals||!vals.length) return "";
+  const min=Math.min(...vals), max=Math.max(...vals), span=(max-min)||1, pad=4;
+  const pts=vals.map((v,i)=>[ vals.length===1?w/2:pad+i*(w-2*pad)/(vals.length-1), h-pad-((v-min)/span)*(h-2*pad) ]);
+  const line=pts.map(p=>p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ");
+  const area="M"+pts[0][0].toFixed(1)+","+(h-1)+" L"+line.replace(/ /g," L ")+" L"+pts[pts.length-1][0].toFixed(1)+","+(h-1)+" Z";
+  const last=pts[pts.length-1];
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="height:${h}px">
+    <path d="${area}" fill="${color}" opacity="0.13"></path>
+    <polyline points="${line}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"></polyline>
+    <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.6" fill="${color}"></circle></svg>`;
+}
+function intradaySVG(entries,w=460,h=140){
+  const S=[["total_times","Total","#0891b2"],["qib_times","QIB","#7c3aed"],["nii_times","NII","#d97706"],["rii_times","RII","#059669"]];
+  const vals=[]; entries.forEach(e=>S.forEach(([k])=>{ if(e[k]!=null) vals.push(e[k]); }));
+  if(!vals.length) return "";
+  const max=Math.max(...vals)*1.1||1, padL=34, padB=18, padT=8;
+  const xs=e=>padL+((e.hour-9)/(18-9))*(w-padL-8);
+  const ys=v=>h-padB-(v/max)*(h-padB-padT);
+  let out=`<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto">`;
+  for(let g=1;g<=3;g++){ const gv=max*g/4, gy=ys(gv);
+    out+=`<line x1="${padL}" y1="${gy}" x2="${w-8}" y2="${gy}" stroke="#e2e8f0" stroke-width="1"/><text x="${padL-4}" y="${gy+3}" fill="#94a3b8" font-size="9" text-anchor="end">${gv>=10?Math.round(gv):gv.toFixed(1)}×</text>`; }
+  entries.forEach(e=>{ if(e.hour%2===1||e.hour===entries[0].hour) out+=`<text x="${xs(e)}" y="${h-5}" fill="#94a3b8" font-size="9" text-anchor="middle">${e.hour}h</text>`; });
+  S.forEach(([k,,c])=>{ const pts=entries.filter(e=>e[k]!=null).map(e=>xs(e).toFixed(1)+","+ys(e[k]).toFixed(1)).join(" ");
+    if(pts) out+=`<polyline points="${pts}" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    entries.filter(e=>e[k]!=null).forEach(e=>{ out+=`<circle cx="${xs(e).toFixed(1)}" cy="${ys(e[k]).toFixed(1)}" r="2.4" fill="${c}"/>`; }); });
+  return out+"</svg>";
+}
+
+/* ================= derived data ================= */
+function gmpPct(ipo){ return (ipo.gmp_latest!=null && ipo.price_high) ? (ipo.gmp_latest/ipo.price_high*100) : null; }
+function estListing(ipo){ return (ipo.gmp_latest!=null && ipo.price_high) ? ipo.price_high+ipo.gmp_latest : null; }
+function minInvestment(ipo){
+  const a=ipo.application_size||{};
+  const r=a["RII"]||a["Retail"];
+  if(r&&r.amount) return r.amount;
+  if(ipo.price_high&&ipo.lot_size) return ipo.price_high*ipo.lot_size;
+  return null;
+}
+function ipoSortKey(ipo){
+  const d=dayN(ipo.timeline&&ipo.timeline.close);
+  if(ipo.status==="OPEN"&&d===0) return -1;
+  return ORDER[ipo.status]!=null?ORDER[ipo.status]:9;
+}
+function sortIpos(list){
+  const c=[...list];
+  if(state.sort==="live") c.sort((a,b)=>ipoSortKey(a)-ipoSortKey(b)||((b.issue_size_cr||0)-(a.issue_size_cr||0)));
+  else if(state.sort==="close"){ const k=i=>{ const d=dayN(i.timeline&&i.timeline.close); return d==null?999:d; }; c.sort((a,b)=>k(a)-k(b)); }
+  else if(state.sort==="gmp") c.sort((a,b)=>(gmpPct(b)||-999)-(gmpPct(a)||-999));
+  else if(state.sort==="size") c.sort((a,b)=>(b.issue_size_cr||0)-(a.issue_size_cr||0));
+  else if(state.sort==="gain") c.sort((a,b)=>((b.listing_gain_pct!=null?b.listing_gain_pct:-999)-(a.listing_gain_pct!=null?a.listing_gain_pct:-999)));
+  return c;
+}
+function pctCell(n){
+  if(n==null) return `<span class="dim">—</span>`;
+  return `<span class="${n>0?"pos":n<0?"neg":"dim"}">${pct(n)}</span>`;
+}
+function xCell(t){
+  if(t==null) return `<span class="dim">—</span>`;
+  const cls = t>=10?"pos":t>=3?"pos":t>=1?"":"neg";
+  const st = t>=10?"pos":t>=3?"pos":t>=1?"":"neg";
+  return `<span class="${st}">${xfmt(t)}</span>`;
+}
+
+/* ================= shared UI pieces ================= */
+function setPill(mode,text){
+  const p=$("pill"); p.className="pill "+(mode==="live"?"live":mode==="file"?"file":(mode==="sample"||mode==="shared")?mode==="shared"?"shared":"sample":"");
+  $("pilltext").textContent=text;
+}
+function xClass(t){ if(t==null) return "lo"; if(t>=10) return "hi"; if(t>=3) return "ok"; if(t>=1) return "mid"; return "lo"; }
+function barColor(t){ return t==null?"#94a3b8":t>=10?"#10b981":t>=3?"#34d399":t>=1?"#fbbf24":"#f87171"; }
+function subBars(ipo){
+  const s=ipo.subscription_shares||{}, appsAll=ipo.subscription_applications||{};
+  let rows=[["QIB",s.QIB,appsAll.QIB],["B-HNI",s.bNII,appsAll.bNII],["S-HNI",s.sNII,appsAll.sNII],["NII",s.NII,appsAll.NII],["RII",s.RII,appsAll.RII],["Total",s.Total,appsAll.Total]].filter(r=>r[1]);
+  if(s.bNII&&s.sNII) rows=rows.filter(r=>r[0]!=="NII");  // show split instead of aggregate
+  if(!rows.length) return `<div class="srcnote">subscription data not available yet</div>`;
+  const out=rows.map(([lbl,v,ap])=>{
+    const t=v.times, w=Math.min((t||0)/20*100,100);
+    return `<div class="subrow2"><span class="lbl">${lbl}</span>
+      <span class="bar"><i style="width:${(t==null?4:w).toFixed(1)}%;background:${barColor(t)}"></i></span>
+      <span class="x ${xClass(t)}">${xfmt(t)} ${ap&&ap.applied?`<span class="apps">${appsStr(ap.applied)}</span>`:""}</span></div>`;
+  }).join("");
+  const note=ipo.subscription_updated?`⟳ subscription updated ${esc(ipo.subscription_updated)} · bars scaled to 20× cap`:"bars scaled to 20× cap";
+  return `<div class="subs">${out}</div><div class="srcnote">${note}</div>`;
+}
+function timelineStrip(ipo){
+  const t=ipo.timeline||{};
+  const steps=[["open","Opens"],["close","Closes"],["allotment","Allotment"],["listing","Listing"]];
+  const today=nowISO();
+  return `<div class="tstrip">`+steps.map(([k,l])=>{
+    const iso=t[k]; if(!iso) return `<div class="tstep"><div class="d">—</div><div class="l">${l}</div></div>`;
+    const cls = iso===today?"today":(dayN(iso)<0?"past":"");
+    return `<div class="tstep ${cls}"><div class="d">${fdate(iso)}</div><div class="l">${l}</div></div>`;
+  }).join("")+`</div>`;
+}
+function statusChips(ipo){
+  const bits=[];
+  if(ipo.status==="LISTED"){
+    if(ipo.listing_price!=null) bits.push(`Issue ${money(ipo.price_high)} → Listed ${money(ipo.listing_price)} <span class="chip ${ipo.listing_gain_pct>=0?"up":"down"}">${pct(ipo.listing_gain_pct)}</span>`);
+    if(ipo.current_price!=null) bits.push(`Now ${money(ipo.current_price)} <span class="chip ${ipo.current_gain_pct>=0?"up":"down"}">${pct(ipo.current_gain_pct)}</span>`);
+  } else if(ipo.status==="OPEN"){
+    const d=dayN(ipo.timeline&&ipo.timeline.close);
+    if(d===0) bits.push(`<span class="chip down">⚡ CLOSES TODAY · 5 PM</span>`);
+    else if(d===1) bits.push(`<span class="chip flat">closes tomorrow</span>`);
+    const o=dayN(ipo.timeline&&ipo.timeline.open);
+    if(o!=null&&d!=null&&d>0) bits.push(`<span class="chip ghost">day ${Math.min(Math.max(o,0)+1,d+1)} of ${d+1}</span>`);
+  } else if(ipo.status==="UPCOMING"){
+    const o=dayN(ipo.timeline&&ipo.timeline.open);
+    if(o===0) bits.push(`<span class="chip up">⚡ OPENS TODAY</span>`);
+    else if(o===1) bits.push(`<span class="chip ghost">opens tomorrow</span>`);
+    else if(o!=null&&o>1) bits.push(`<span class="chip ghost">opens in ${o}d</span>`);
+  } else if(ipo.status==="ALLOTTED"){
+    const l=dayN(ipo.timeline&&ipo.timeline.listing);
+    if(l!=null) bits.push(`<span class="chip ghost">lists ${l===0?"today":l===1?"tomorrow":"in "+l+"d"} · ${fdatey(ipo.timeline.listing)}</span>`);
+  }
+  return bits.join(" ");
+}
+function gmpBlock(ipo){
+  const g=ipo.gmp_latest, avg=ipo.gmp_daily_avg||[];
+  const right=avg.length?sparkSVG(avg.map(a=>a.avg)):null;
+  let left;
+  if(g!=null&&ipo.status!=="LISTED"){
+    const e=estListing(ipo), p=gmpPct(ipo);
+    left=`<div class="gmpnum">GMP <b>₹${nfIN.format(g)}</b> <span class="chip ${p>=0?"up":"down"}">${pct(p)}</span><br><span style="font-size:10.5px">est. listing ${e!=null?money(e):"—"}</span></div>`;
+  } else if(ipo.status==="LISTED"&&ipo.listing_price!=null){
+    left=`<div class="gmpnum">listed <b>${money(ipo.listing_price)}</b> <span class="chip ${ipo.listing_gain_pct>=0?"up":"down"}">${pct(ipo.listing_gain_pct)}</span></div>`;
+  } else {
+    left=`<div class="gmpnum">GMP <b>—</b></div>`;
+  }
+  if(!right&&(g==null&&ipo.status!=="LISTED")) return "";
+  return `<div class="gmpwrap">${left}${right||""}</div>${avg.length?`<div class="srcnote">GMP daily average · ${avg.length} day${avg.length>1?"s":""} tracked · latest ${fdate(avg[avg.length-1].date)}</div>`:""}`;
+}
+function drawer(ipo){
+  let out="";
+  const f=ipo.fresh_issue_cr, o=ipo.ofs_cr;
+  if(f!=null||o!=null){
+    const srcNote = ipo.issue_split_source ? ` — via ${esc(ipo.issue_split_source)}${ipo.issue_split_fetched_at?" · "+esc(String(ipo.issue_split_fetched_at).slice(0,10)):""} (fetched once, cached)` : "";
+    out+=`<div class="dsec"><h4>Issue composition</h4><div class="kv">
+      <div class="cell"><div class="k">Fresh issue</div><div class="v">${f!=null?cr(f):"—"}</div></div>
+      <div class="cell"><div class="k">Offer for sale</div><div class="v">${o!=null?cr(o):"—"}</div></div>
+      <div class="cell"><div class="k">Total size</div><div class="v">${ipo.issue_size_cr?cr(ipo.issue_size_cr):"—"}</div></div>
+    </div>${srcNote?`<div class="srcnote">${srcNote}</div>`:""}</div>`;
+  }
+  const app=ipo.application_size||{};
+  if(Object.keys(app).length){
+    out+=`<div class="dsec"><h4>Application size (minimum)</h4><table class="mini"><tr><th>Quota</th><th>Shares</th><th>Lots</th><th>Amount</th></tr>`+
+      Object.entries(app).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v.shares?nfIN0.format(v.shares):"—"}</td><td>${v.lots?nfIN0.format(v.lots):"—"}</td><td>${v.amount?money(v.amount):"—"}</td></tr>`).join("")+`</table></div>`;
+  }
+  const ss=ipo.subscription_shares||{}, sa=ipo.subscription_applications||{};
+  const CATS=["QIB","bNII","sNII","NII","RII","Employee","Total"];
+  const catLabel=k=>k==="bNII"?"B-HNI":k==="sNII"?"S-HNI":k;
+  const cleanNo=v=>{ const n=parseFloat(String(v==null?"":v).replace(/,/g,"")); return isNaN(n)?null:n; };
+  if(ss.QIB||ss.Total){
+    out+=`<div class="dsec"><h4>Subscription — by shares (lakh)</h4><table class="mini">
+      <tr><th>Category</th><th>Offered</th><th>Applied</th><th>Times</th></tr>`+
+      CATS.filter(k=>ss[k]).map(k=>`<tr><td>${catLabel(k)}</td><td>${esc(ss[k].offered)}</td><td>${esc(ss[k].applied)}</td><td>${xfmt(ss[k].times)}</td></tr>`).join("")+
+      `</table></div>`;
+  }
+  if(Object.keys(sa).length){
+    out+=`<div class="dsec"><h4>Subscription — by applications (nos., from trynarada)</h4><table class="mini">
+      <tr><th>Category</th><th>Offered</th><th>Applied</th><th>Times</th></tr>`+
+      CATS.filter(k=>sa[k]).map(k=>{
+        const o=cleanNo(sa[k].offered), a=cleanNo(sa[k].applied);
+        return `<tr><td>${catLabel(k)}</td><td>${o!=null?nfIN0.format(o):"—"}</td><td>${a!=null?nfIN0.format(a):"—"}</td><td>${xfmt(sa[k].times)}</td></tr>`;
+      }).join("")+
+      `</table></div>`;
+  }
+  const q=ipo.qib_intraday||[];
+  if(q.length>=2){
+    out+=`<div class="dsec"><h4>Closing-day intraday subscription (hourly)</h4>
+      <div class="intralegend"><span><i style="background:#0891b2"></i>Total</span><span><i style="background:#7c3aed"></i>QIB</span><span><i style="background:#d97706"></i>NII</span><span><i style="background:#059669"></i>RII</span></div>
+      ${intradaySVG(q)}</div>`;
+  } else if(ipo.status==="OPEN"){
+    out+=`<div class="dsec"><h4>Closing-day intraday</h4><div class="srcnote">logs automatically on closing day (script runs hourly; needs ≥2 points to draw)</div></div>`;
+  }
+  const t=ipo.timeline||{};
+  const extras=[["Mandate end",t.mandate_end],["Anchor lock-in 50% ends",t.anchor_50],["Anchor lock-in 100% ends",t.anchor_100],["Settlement",t.settlement]].filter(r=>r[1]);
+  if(extras.length){
+    out+=`<div class="dsec"><h4>More dates</h4><div class="kv">`+extras.map(([k,v])=>`<div class="cell"><div class="k">${k}</div><div class="v">${fdatey(v)}</div></div>`).join("")+`</div></div>`;
+  }
+  const im=ipo.intermediaries;
+  if(im&&(im.lead_managers||im.registrar)){
+    out+=`<div class="dsec"><h4>Intermediaries</h4><div style="font-size:12px;line-height:1.7">
+      ${im.lead_managers?`<b style="color:var(--muted)">Lead managers:</b> ${im.lead_managers.map(esc).join(" · ")}<br>`:""}
+      ${im.registrar?`<b style="color:var(--muted)">Registrar:</b> ${esc(im.registrar)}`:""}</div></div>`;
+  }
+  const links=[`<a href="https://trynarada.com/ipos/${encodeURIComponent(ipo.slug)}/" target="_blank" rel="noopener">trynarada ↗</a>`];
+  if(ipo.issue_split_url) links.push(`<a href="${esc(ipo.issue_split_url)}" target="_blank" rel="noopener">IPO Central ↗</a>`);
+  out+=`<div class="dsec links">${links.join("")}</div>`;
+  return out;
+}
+
+/* ================= CARD VIEW ================= */
+function card(ipo,idx){
+  return `<div class="card">
+    <div class="chead"><div class="cname">${esc(ipo.name)}</div><span class="badge b-${esc(ipo.status)}">${esc(ipo.status)}</span></div>
+    <div class="cbody">
+      <div class="rowline">${statusChips(ipo)}</div>
+      <div class="stat4">
+        <div class="stat"><div class="k">Price band</div><div class="v">${ipo.price_low!=null?money(ipo.price_low)+(ipo.price_high!==ipo.price_low?"–"+nfIN.format(ipo.price_high):""):"—"}</div></div>
+        <div class="stat"><div class="k">Lot</div><div class="v">${ipo.lot_size?nfIN0.format(ipo.lot_size)+" sh":"—"}</div></div>
+        <div class="stat"><div class="k">Issue size</div><div class="v">${ipo.issue_size_cr?cr(ipo.issue_size_cr):"—"}</div></div>
+        <div class="stat"><div class="k">Min (retail)</div><div class="v">${minInvestment(ipo)!=null?money(minInvestment(ipo)):"—"}</div></div>
+      </div>
+      ${gmpBlock(ipo)}
+      ${subBars(ipo)}
+      ${timelineStrip(ipo)}
+    </div>
+    <button class="expbtn" data-exp="${idx}">▾ details · subscription · charts</button>
+    <div class="drawer" id="drawer-${idx}">${drawer(ipo)}</div>
+  </div>`;
+}
+
+/* ================= LIST VIEW ================= */
+function listRow(ipo,i){
+  const t=ipo.timeline||{};
+  const g=ipo.gmp_latest, gp=gmpPct(ipo);
+  // combined "Now / EST" column: listed -> current price + % vs issue;
+  // everyone else -> GMP-based estimated listing price + GMP %, tagged (EST)
+  let nowEst;
+  if(ipo.status==="LISTED"&&ipo.current_price!=null){
+    nowEst=`${money(ipo.current_price)} <span class="${ipo.current_gain_pct>=0?"pos":"neg"}">${pct(ipo.current_gain_pct)}</span>`;
+  } else if(g!=null&&ipo.price_high){
+    nowEst=`${money(estListing(ipo))} <span class="${gp>=0?"pos":"neg"}">${pct(gp)}</span> <span class="dim">(EST)</span>`;
+  } else {
+    nowEst=`<span class="dim">—</span>`;
+  }
+  const ss=ipo.subscription_shares||{};
+  const priceCell = ipo.price_low!=null ? money(ipo.price_low)+(ipo.price_high!==ipo.price_low?"–"+nfIN.format(ipo.price_high):"") : "—";
+  return `<tr class="lrow" data-exp2="${i}">
+    <td title="${esc(ipo.name)}">${esc(ipo.name)}</td>
+    <td><b>${priceCell}</b></td>
+    <td>${nowEst}</td>
+    <td><span class="badge b-${esc(ipo.status)}">${esc(ipo.status)}</span></td>
+    <td>${ipo.issue_size_cr?cr(ipo.issue_size_cr):`<span class="dim">—</span>`}</td>
+    <td>${xCell((ss.QIB||{}).times)}</td>
+    <td>${xCell((ss.bNII||{}).times)}</td>
+    <td>${xCell((ss.sNII||{}).times)}</td>
+    <td>${xCell((ss.RII||{}).times)}</td>
+    <td>${xCell((ss.Total||{}).times)}</td>
+    <td>${fdate(t.open)}</td>
+    <td>${fdate(t.close)}</td>
+    <td class="dim">▾</td>
+  </tr>
+  <tr class="ldetail" id="ld-${i}" style="display:none"><td colspan="13"><div class="drawer">${drawer(ipo)}</div></td></tr>`;
+}
+function listView(list){
+  return `<div class="tablewrap"><table class="ltable">
+    <thead><tr>
+      <th>Company</th><th>Price</th><th>Now / EST (GMP)</th><th>Status</th><th>Issue</th>
+      <th>QIB</th><th>B-HNI</th><th>S-HNI</th><th>RII</th><th>Total</th>
+      <th>Open</th><th>Close</th><th></th>
+    </tr></thead>
+    <tbody>${list.map((ipo,i)=>listRow(ipo,i)).join("")}</tbody>
+  </table></div>`;
+}
+
+/* ================= render ================= */
+function render(){
+  if(!state.data){ $("grid").innerHTML=""; return; }
+  const ipos=state.data.ipos||[];
+  const counts={ALL:ipos.length}; ipos.forEach(i=>counts[i.status]=(counts[i.status]||0)+1);
+  $("tabs").innerHTML=TABS.map(([k,l])=>`<button class="tab ${state.tab===k?"on":""}" data-tab="${k}">${l} <span class="n">${counts[k]||0}</span></button>`).join("");
+  $("countline").textContent=`${counts.OPEN||0} open · ${counts.UPCOMING||0} upcoming · ${counts.CLOSED||0} closed · ${counts.ALLOTTED||0} allotted · ${counts.LISTED||0} listed`;
+  let list=ipos.filter(i=>state.tab==="ALL"||i.status===state.tab);
+  if(state.q) list=list.filter(i=>i.name.toLowerCase().includes(state.q));
+  list=sortIpos(list);
+  if(state.view==="cards"){
+    $("grid").style.display="grid";
+    $("grid").innerHTML=list.map((ipo,i)=>card(ipo,i)).join("");
+  } else {
+    $("grid").style.display="block";
+    $("grid").innerHTML=listView(list);
+  }
+  $("empty").style.display=list.length?"none":"block";
+  if(!list.length) $("empty").textContent=state.q?"No IPOs match your search.":"No IPOs in this category right now.";
+  document.querySelectorAll("[data-exp]").forEach(b=>b.addEventListener("click",()=>{
+    const d=$("drawer-"+b.dataset.exp); const open=d.classList.toggle("open");
+    b.textContent=open?"▴ hide":"▾ details · subscription · charts";
+  }));
+  document.querySelectorAll("[data-exp2]").forEach(tr=>tr.addEventListener("click",()=>{
+    const d=$("ld-"+tr.dataset.exp2); d.style.display = d.style.display==="none"?"":"none";
+  }));
+  const gen=state.data.generated_at?new Date(state.data.generated_at):null;
+  $("datasrc").innerHTML=`source: <code>ipo_data.json</code>${gen?` · scraped ${gen.toLocaleString("en-IN")}`:""}`;
+}
+
+/* ================= data loading ================= */
+function load(json,mode){
+  state.data=json; state.mode=mode;
+  if(mode==="sample"){
+    setPill("sample","SAMPLE DATA"); $("autorefresh").textContent="sample data — not live";
+    $("banner").style.display="block";
+    $("bannertext").innerHTML=`<b>Showing built-in sample data.</b> This preview can't reach <code>ipo_data.json</code> from here. Open the page through the live server preview, or run <code>python -m http.server 8000</code> next to <code>ipo_data.json</code> for auto-load + auto-refresh — or drag &amp; drop your <code>ipo_data.json</code> anywhere on this page.`;
+  } else if(mode==="shared"){
+    setPill("shared","SHARED SNAPSHOT"); $("autorefresh").textContent="static snapshot from a friend — run the script yourself for live data";
+    $("banner").style.display="none";
+  } else if(mode==="poll"||mode==="http"){
+    setPill("live","LIVE · auto-refresh 60s"); $("autorefresh").textContent="auto re-fetch every 60 s"; $("banner").style.display="none";
+    if(mode==="http") startPolling();
+  } else if(mode==="file"){
+    setPill("file","STATIC FILE"); $("autorefresh").textContent="static file — serve over HTTP for auto-refresh"; $("banner").style.display="none";
+  }
+  render();
+}
+async function tryLoad(){
+  if(window.__EMBEDDED_DATA__){ load(window.__EMBEDDED_DATA__,"shared"); return; }
+  const isHTTP=location.protocol==="http:"||location.protocol==="https:";
+  if(isHTTP){
+    try{
+      const r=await fetch("ipo_data.json",{cache:"no-store"});
+      if(r.ok){ load(await r.json(),"http"); return; }
+    }catch(e){}
+  }
+  load(SAMPLE,"sample");
+}
+function startPolling(){
+  if(state.timer) clearInterval(state.timer);
+  state.pollCountdown=60;
+  state.timer=setInterval(async()=>{
+    state.pollCountdown--;
+    if(state.pollCountdown<=0){
+      state.pollCountdown=60;
+      try{
+        const r=await fetch("ipo_data.json",{cache:"no-store"});
+        if(r.ok){ const j=await r.json();
+          if(!state.data||j.generated_at!==state.data.generated_at){ load(j,"poll"); }
+          else setPill("live","LIVE · auto-refresh 60s");
+        }
+      }catch(e){ setPill("file","OFFLINE · retrying"); }
+    }
+  },1000);
+}
+function tickClock(){ $("clock").textContent=new Date().toLocaleTimeString("en-IN",{hour12:false})+" local"; }
+setInterval(tickClock,1000); tickClock();
+
+/* refresh button */
+$("refreshbtn").addEventListener("click",async()=>{
+  if(location.protocol==="http:"||location.protocol==="https:"){
+    try{ const r=await fetch("ipo_data.json",{cache:"no-store"}); if(r.ok){ load(await r.json(),"http"); return; } }catch(e){}
+  }
+  setPill("file","NO SERVER"); $("autorefresh").textContent="open via http:// (python -m http.server) for live refresh";
+});
+
+/* file picker + drag & drop (accepts .json data and .html shared snapshots) */
+$("loadbtn").addEventListener("click",()=>$("fileinput").click());
+$("fileinput").addEventListener("change",e=>{ const f=e.target.files[0]; if(f) readFileSmart(f); });
+function readFileSmart(f){
+  const r=new FileReader();
+  r.onload=()=>{
+    const txt=String(r.result);
+    if((f.name||"").endsWith(".html")||txt.trimStart().startsWith("<")){
+      const m=txt.match(/window\.__EMBEDDED_DATA__\s*=\s*([\s\S]*?);\s*<\//);
+      if(m){ try{ load(JSON.parse(m[1].replace(/<\\\//g,"</")),"file"); return; }catch(e){} }
+      alert("That HTML has no embedded IPO Desk data.");
+      return;
+    }
+    try{ load(JSON.parse(txt),"file"); $("banner").style.display="none"; }
+    catch(err){ alert("Could not parse that file as JSON: "+err.message); }
+  };
+  r.readAsText(f);
+}
+window.addEventListener("dragover",e=>{ e.preventDefault(); $("dropzone").style.display="flex"; });
+window.addEventListener("dragleave",e=>{ if(e.relatedTarget==null) $("dropzone").style.display="none"; });
+window.addEventListener("drop",e=>{ e.preventDefault(); $("dropzone").style.display="none"; const f=e.dataTransfer.files[0]; if(f) readFileSmart(f); });
+
+/* search + sort + tabs + view toggle */
+$("search").addEventListener("input",e=>{ state.q=e.target.value.trim().toLowerCase(); render(); });
+$("sort").addEventListener("change",e=>{ state.sort=e.target.value; render(); });
+$("tabs").addEventListener("click",e=>{ const b=e.target.closest("[data-tab]"); if(b){ state.tab=b.dataset.tab; render(); } });
+function setView(v){
+  state.view=v; try{ localStorage.setItem("ipodesk_view",v); }catch(e){}
+  $("v-cards").classList.toggle("on",v==="cards");
+  $("v-list").classList.toggle("on",v==="list");
+  render();
+}
+$("v-cards").addEventListener("click",()=>setView("cards"));
+$("v-list").addEventListener("click",()=>setView("list"));
+try{ const saved=localStorage.getItem("ipodesk_view"); if(saved==="list") setView("list"); }catch(e){}
+
+/* ================= share: self-contained snapshot HTML ================= */
+function buildShareHtml(){
+  const payload=JSON.stringify(state.data).replace(/<\/script/gi,"<\\/script");
+  const s=document.createElement("script");
+  s.id="embedded-data";
+  s.textContent="window.__EMBEDDED_DATA__="+payload+";";
+  document.head.appendChild(s);
+  const html="<!DOCTYPE html>\n"+document.documentElement.outerHTML;
+  s.remove();
+  return html;
+}
+$("sharebtn").addEventListener("click",()=>{
+  if(!state.data){ alert("No data loaded yet — load ipo_data.json first."); return; }
+  const blob=new Blob([buildShareHtml()],{type:"text/html"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="ipo-desk-"+nowISO()+".html";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+});
+
+/* ================= sample data (only when no JSON reachable & nothing embedded) ================= */
+function SAMPLE_BUILDER(){
+  const d=new Date(); const iso=off=>{ const t=new Date(d); t.setDate(t.getDate()+off); return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}-${String(t.getDate()).padStart(2,"0")}`; };
+  return { generated_at:new Date().toISOString(), sample:true, ipos:[
+    { name:"Symbiotec Pharmalab Limited", slug:"SYMBIOTEC", status:"OPEN", price_low:938, price_high:988, lot_size:15, issue_size_cr:1757.3, fresh_issue_cr:150, ofs_cr:1607,
+      issue_split_source:"IPO Central", issue_split_fetched_at:iso(0)+"T10:00:00",
+      gmp_latest:340, gmp_daily_avg:[{date:iso(-2),avg:295},{date:iso(-1),avg:318},{date:iso(0),avg:340}],
+      timeline:{open:iso(-1),close:iso(0),allotment:iso(1),settlement:iso(4),listing:iso(6),mandate_end:iso(32),anchor_50:iso(32),anchor_100:iso(92)},
+      subscription_shares:{QIB:{offered:"350.80",applied:"1,123.50",times:3.20},NII:{offered:"263.10",applied:"3,375.43",times:12.83},bNII:{offered:"175.40",applied:"2,087.09",times:11.9},sNII:{offered:"87.70",applied:"1,288.34",times:14.69},RII:{offered:"613.90",applied:"3,268.38",times:5.32},Employee:{offered:"3.30",applied:"20.50",times:6.21},Total:{offered:"1231.10",applied:"7,787.81",times:6.32}},
+      subscription_applications:{QIB:{offered:"35,50,608",applied:"233"},NII:{offered:"12,681",applied:"79,956",times:6.31},bNII:{offered:"8,454",applied:"20,346"},sNII:{offered:"4,227",applied:"59,610"},RII:{offered:"4,14,237",applied:"18,69,860",times:4.51},Total:{applied:"19,50,049"}},
+      application_size:{RII:{shares:15,lots:1,amount:14820},sNII:{shares:210,lots:14,amount:207480},bNII:{shares:1035,lots:69,amount:1022580}},
+      subscription_updated:"just now", intermediaries:{lead_managers:["Nomura Financial Advisory","JM Financial","Motilal Oswal Investment Advisors"],registrar:"MUFG Intime India"},
+      qib_intraday:[{date:iso(0),hour:10,qib_times:0.62,nii_times:2.1,rii_times:1.2,total_times:1.4},{date:iso(0),hour:11,qib_times:1.4,nii_times:4.8,rii_times:2.6,total_times:3.1},{date:iso(0),hour:12,qib_times:2.1,nii_times:7.9,rii_times:3.8,total_times:4.6},{date:iso(0),hour:13,qib_times:3.2,nii_times:12.83,rii_times:5.32,total_times:6.32}] },
+    { name:"ESDS Software Solution Limited", slug:"ESDS", status:"UPCOMING", price_low:408, price_high:429, lot_size:27, issue_size_cr:720, fresh_issue_cr:720, ofs_cr:null,
+      issue_split_source:"IPO Central", gmp_latest:345, gmp_daily_avg:[{date:iso(-3),avg:280},{date:iso(-2),avg:301},{date:iso(-1),avg:322},{date:iso(0),avg:345}],
+      timeline:{open:iso(2),close:iso(4),allotment:iso(6),listing:iso(9),anchor_50:iso(35),anchor_100:iso(95)},
+      subscription_applications:{}, application_size:{RII:{shares:27,lots:1,amount:11583}}, subscription_updated:null },
+    { name:"Tempsens Instruments (India) Limited", slug:"TEMPSENS", status:"ALLOTTED", price_low:285, price_high:300, lot_size:49, issue_size_cr:650, fresh_issue_cr:95, ofs_cr:555,
+      issue_split_source:"IPO Central", gmp_latest:300, gmp_daily_avg:[{date:iso(-1),avg:296},{date:iso(0),avg:300}],
+      timeline:{open:iso(-4),close:iso(-2),allotment:iso(-1),settlement:iso(2),listing:iso(4),anchor_50:iso(30),anchor_100:iso(90)},
+      subscription_shares:{QIB:{offered:"95.20",applied:"28,914.2",times:302.88},NII:{offered:"71.40",applied:"7,120.6",times:99.73},RII:{offered:"166.60",applied:"5,201.3",times:31.22},Total:{offered:"333.20",applied:"41,236.1",times:123.74}},
+      subscription_applications:{RII:{applied:"5,20,130"}}, application_size:{RII:{shares:49,lots:1,amount:14700}}, subscription_updated:"2 hours ago" },
+    { name:"Molbio Diagnostics Limited", slug:"MOLBIO", status:"LISTED", price_low:807, price_high:807, lot_size:18, issue_size_cr:939.85, fresh_issue_cr:200.16, ofs_cr:739.7,
+      issue_split_source:"IPO Central", timeline:{open:iso(-16),close:iso(-14),allotment:iso(-13),settlement:iso(-12),listing:iso(-9),mandate_end:iso(1),anchor_50:iso(17),anchor_100:iso(77)},
+      listing_price:980, listing_gain_pct:21.4, current_price:1238.85, current_gain_pct:53.5,
+      subscription_shares:{QIB:{offered:"268.50",applied:"12,342.1",times:45.97},NII:{offered:"201.40",applied:"8,120.4",times:40.32},RII:{offered:"469.90",applied:"6,201.7",times:13.2},Total:{offered:"939.80",applied:"26,664.2",times:28.37}},
+      subscription_applications:{RII:{applied:"6,20,170"}}, application_size:{RII:{shares:18,lots:1,amount:14526}}, subscription_updated:"just now",
+      intermediaries:{lead_managers:["IIFL Capital Services","Motilal Oswal Investment Advisors"],registrar:"KFin Technologies"} }
+  ]};
+}
+let SAMPLE=SAMPLE_BUILDER();
+
+/* boot */
+tryLoad();
+</script>
+</body>
+</html>
