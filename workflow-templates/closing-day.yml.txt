@@ -1,0 +1,57 @@
+# ══════════════════════════════════════════════════════════════════════════
+# CLOSING-DAY 15-MINUTE TRACKER — workflow template
+# ══════════════════════════════════════════════════════════════════════════
+# GitHub blocks the Arena app from creating workflow files automatically, so
+# this one file must be added by hand (60 seconds, works from a phone):
+#
+#   1. Open the repo on github.com → make sure you're on branch `main`
+#   2. "Add file" → "Create new file"
+#   3. Name it:  .github/workflows/closing-day.yml
+#   4. Paste everything BELOW the "CUT BELOW" line, commit.
+#
+# After that, snapshots run every 15 minutes automatically on closing days,
+# and can also be fired from a phone by any of:
+#   • the Actions tab → "Closing-day subscription tracker" → "Run workflow"
+#   • the sandbox dispatcher (it pings `repository_dispatch` every 15 min)
+# ────────────────────────────────────────────── CUT BELOW ──────────────────
+name: Closing-day subscription tracker (every 15 min)
+
+on:
+  schedule:
+    - cron: "*/15 8-11 * * *"   # 08:00-11:45 UTC = 13:30-17:00 IST
+  workflow_dispatch: {}
+  repository_dispatch:
+    types: [closing-day-tick]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: closing-day-tracker
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Capture 15-min snapshot
+        run: python daily_ipo_update.py
+
+      - name: Commit snapshot log
+        run: |
+          git config user.name "ipo-desk-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add qib_closing_log.json qib_intraday_log.json
+          if git diff --cached --quiet; then
+            echo "no change"
+          else
+            git commit -m "closing-day snapshot $(TZ=Asia/Kolkata date +'%d %b %I:%M %p IST')"
+            git push
+          fi
