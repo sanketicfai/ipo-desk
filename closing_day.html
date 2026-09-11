@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Closing Day — QIB &amp; Subscription Tracker · IPO Desk</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔔</text></svg>">
+<style>
+  :root{
+    --bg:#eef1f6; --panel:#ffffff; --panel2:#f6f8fb; --line:#e2e8f0; --line2:#cbd5e1;
+    --text:#0f172a; --muted:#64748b; --dim:#94a3b8;
+    --green:#059669; --amber:#d97706; --red:#dc2626; --blue:#2563eb; --purple:#7c3aed; --cyan:#0891b2; --teal:#0d9488;
+    --shadow:0 1px 3px rgba(15,23,42,.06), 0 1px 2px rgba(15,23,42,.04);
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; font-size:14px}
+  a{color:var(--blue); text-decoration:none}
+
+  header{position:sticky; top:0; z-index:50; background:rgba(255,255,255,.95); backdrop-filter:blur(8px); border-bottom:1px solid var(--line); box-shadow:var(--shadow)}
+  .hrow{max-width:1400px; margin:0 auto; padding:10px 16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+  .logo{font-size:17px; font-weight:800; letter-spacing:.3px; white-space:nowrap}
+  .logo span.g{color:var(--green)}
+  .pill{display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:700; padding:3px 10px; border-radius:99px; border:1px solid var(--line2); color:var(--muted); letter-spacing:.4px}
+  .pill .dot{width:7px; height:7px; border-radius:50%; background:var(--muted)}
+  .pill.live{color:#fff; background:var(--green); border-color:var(--green)}
+  .pill.live .dot{background:#fff; animation:pulse 1.6s infinite}
+  .pill.warn{color:var(--amber); border-color:var(--amber)}
+  .pill.warn .dot{background:var(--amber)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .clock{font-variant-numeric:tabular-nums; color:var(--muted); font-size:12px}
+  .spacer{flex:1}
+  .hbtn{background:#fff; border:1px solid var(--line2); color:var(--text); padding:7px 12px; border-radius:8px; font-size:12.5px; cursor:pointer; font-weight:600}
+  .hbtn:hover{border-color:var(--blue); color:var(--blue)}
+  select{background:#fff; border:1px solid var(--line2); color:var(--text); padding:7px 8px; border-radius:8px; font-size:12.5px; outline:none; cursor:pointer}
+
+  .wrap{max-width:1400px; margin:0 auto; padding:16px}
+  .secthead{display:flex; align-items:center; gap:10px; margin:22px 0 10px; flex-wrap:wrap}
+  .secthead h2{font-size:15px; font-weight:800; letter-spacing:.2px}
+  .secthead .sub{font-size:12px; color:var(--muted)}
+  .secthead .rule{flex:1; height:1px; background:var(--line)}
+
+  .grid4{display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); padding:14px 16px}
+  .card .top{display:flex; align-items:center; gap:8px}
+  .card .nm{font-weight:800; font-size:15px}
+  .card .close{margin-left:auto; font-size:10.5px; font-weight:800; color:var(--red); background:#fef2f2; border:1px solid #fecaca; border-radius:99px; padding:2px 9px; letter-spacing:.4px; white-space:nowrap}
+  .bigrow{display:flex; align-items:baseline; gap:8px; margin:8px 0 4px}
+  .bigrow .big{font-size:34px; font-weight:800; letter-spacing:-.5px; font-variant-numeric:tabular-nums}
+  .bigrow .lbl{font-size:11px; color:var(--muted); font-weight:700; letter-spacing:.6px; text-transform:uppercase}
+  .chips{display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:8px}
+  .chip{background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:7px 4px; text-align:center}
+  .chip .k{font-size:10px; font-weight:800; letter-spacing:.5px; color:var(--muted)}
+  .chip .v{font-size:16px; font-weight:800; font-variant-numeric:tabular-nums; margin-top:2px}
+  .chip .d{font-size:10px; font-weight:700; margin-top:1px; color:var(--dim); font-variant-numeric:tabular-nums}
+  .chip .d.up{color:var(--green)} .chip .d.hot{color:var(--red)}
+  .cardfoot{display:flex; gap:14px; margin-top:10px; padding-top:8px; border-top:1px dashed var(--line); font-size:11.5px; color:var(--muted); flex-wrap:wrap}
+  .cardfoot b{color:var(--text); font-variant-numeric:tabular-nums}
+  .qibbar{height:6px; border-radius:99px; background:var(--panel2); border:1px solid var(--line); margin-top:10px; overflow:hidden}
+  .qibbar i{display:block; height:100%; background:linear-gradient(90deg,var(--amber),var(--red))}
+
+  .notice{background:var(--panel); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); padding:14px 16px}
+  .notice pre{white-space:pre-wrap; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.3px; line-height:1.55; background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-top:10px}
+
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); padding:14px 16px}
+  .chartbox{position:relative; height:320px}
+  .minigrid{display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:12px}
+  .mini .t{font-size:12.5px; font-weight:800; margin-bottom:6px; display:flex; gap:8px; align-items:center}
+  .mini .t .sw{width:9px; height:9px; border-radius:3px}
+  .mini .chartbox{height:210px}
+  .legend{display:flex; gap:12px; flex-wrap:wrap; margin:2px 0 6px}
+  .legend span{display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:700; color:#334155}
+  .legend i{width:9px; height:9px; border-radius:50%; display:inline-block}
+  .duo{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+  @media(max-width:980px){.duo{grid-template-columns:1fr}}
+
+  table{width:100%; border-collapse:collapse; font-size:12.5px}
+  th{position:sticky; top:0; background:var(--panel2); text-align:right; padding:7px 8px; border-bottom:1px solid var(--line2); font-size:11px; letter-spacing:.4px; color:var(--muted); white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  td{padding:6px 8px; border-bottom:1px solid var(--line); text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap}
+  tr:hover td{background:var(--panel2)}
+  td b{font-weight:800}
+  .tabwrap{max-height:420px; overflow:auto; border:1px solid var(--line); border-radius:10px}
+
+  footer{max-width:1400px; margin:26px auto 30px; padding:0 16px; color:var(--muted); font-size:11.5px; line-height:1.7}
+  footer b{color:var(--text)}
+
+  @media print{
+    header .hbtn,header select,.secthead,.grid4,.minigrid,.duo,.tabwrap,footer .noprint{display:none !important}
+    body{background:#fff}
+    .notice{border:none; box-shadow:none}
+    .notice pre{background:#fff; border:none; font-size:12.5px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="hrow">
+    <div class="logo">🔔 Closing Day Desk <span class="g">·</span> QIB &amp; Subscription Tracker</div>
+    <span class="pill live" id="statusPill"><span class="dot"></span><span id="statusTxt">LOADING…</span></span>
+    <span class="clock" id="clock"></span>
+    <span class="spacer"></span>
+    <span class="pill" id="srcPill">source: —</span>
+    <button class="hbtn" id="refreshBtn">↻ Refresh now</button>
+    <button class="hbtn" onclick="window.print()">🖨 Print notice</button>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="secthead"><h2>Live position — closing at <span style="color:var(--red)">5:00 PM IST</span></h2>
+    <span class="sub" id="asOf"></span><span class="rule"></span></div>
+  <div class="grid4" id="cards"></div>
+
+  <div class="secthead"><h2>📢 QIB participation notice</h2>
+    <span class="sub">auto-drafted per 15-min snapshot · forwardable</span>
+    <span class="rule"></span>
+    <label class="sub" for="slotSel">snapshot:</label>
+    <select id="slotSel"></select>
+    <button class="hbtn" id="copyBtn">⧉ Copy</button>
+  </div>
+  <div class="notice"><pre id="noticeTxt">…</pre></div>
+
+  <div class="secthead"><h2>QIB participation — all 4 issues</h2>
+    <span class="sub">× subscribed, one point per 15-min snapshot</span><span class="rule"></span></div>
+  <div class="panel"><div class="chartbox" id="qibChart"></div></div>
+
+  <div class="secthead"><h2>Share-wise subscription by IPO</h2>
+    <span class="sub">QIB / NII / Retail / Total — × subscribed per 15-min snapshot</span><span class="rule"></span></div>
+  <div class="minigrid" id="minis"></div>
+
+  <div class="secthead"><h2>Application-wise demand</h2>
+    <span class="sub">number of applications received, per 15-min snapshot</span><span class="rule"></span></div>
+  <div class="duo">
+    <div class="panel"><div class="chartbox" id="appsChart"></div></div>
+    <div class="panel"><div class="chartbox" id="appxChart"></div></div>
+  </div>
+
+  <div class="secthead"><h2>Snapshot history</h2>
+    <span class="sub">every logged 15-min slot</span><span class="rule"></span></div>
+  <div class="tabwrap"><table id="histTable"></table></div>
+
+</div>
+
+<footer>
+  <b>How this works:</b> every 15 minutes (:00 / :15 / :30 / :45 IST) the GitHub Actions workflow
+  <code>scrape.yml</code> runs <code>daily_ipo_update.py</code> → <code>closing_day_tracker.py</code>, which reads the live BSE &amp; NSE bid data
+  (as published by IPOJi) and appends one snapshot per IPO — share-wise (offer vs applied), application-wise
+  (reserve vs applied) and ₹-demand — to <code>qib_closing_log.json</code> (mirrored to
+  <code>qib_intraday_log.json</code>, which the workflow commits), until bidding closes at 5:00 PM IST.
+  This page re-fetches the log every 60&nbsp;s. Manual trigger from a branch:
+  <code>gh workflow run scrape.yml --ref &lt;branch&gt;</code>.
+  <span class="noprint">Figures are market bid data, not investment advice.</span>
+</footer>
+
+<script>
+"use strict";
+const IPOS = ["Karamtara Engineering","Steamhouse India","Rentomojo","LCC Projects"];
+const SHORT = {"Karamtara Engineering":"Karamtara","Steamhouse India":"Steamhouse","Rentomojo":"Rentomojo","LCC Projects":"LCC Projects"};
+const COLORS = {"Karamtara Engineering":"#2563eb","Steamhouse India":"#d97706","Rentomojo":"#7c3aed","LCC Projects":"#0d9488"};
+const CATS = ["qib","nii","retail","total"];
+const CATLBL = {qib:"QIB", nii:"NII", retail:"Retail", total:"Total", bnii:"bHNI", snii:"sHNI", employee:"Employee"};
+const CATCOLOR = {qib:"#dc2626", nii:"#2563eb", retail:"#059669", total:"#0f172a"};
+
+let LOG = null, noticeSlot = null;
+
+/* ---------------- data ---------------- */
+async function tryJSON(url){
+  const r = await fetch(url, {cache:"no-store"});
+  if(!r.ok) throw new Error(r.status+" "+url);
+  return r.json();
+}
+function scoreLog(l){
+  if(!l || !Array.isArray(l.snapshots)) return -1;
+  const last = l.snapshots[l.snapshots.length-1];
+  return l.snapshots.length * 1000 + (last && last.captured_ist ? 1 : 0);
+}
+async function loadData(){
+  const local = "qib_closing_log.json?ts="+Date.now();
+  const branch = "https://raw.githubusercontent.com/sanketicfai/ipo-desk/arena/01a08fb0-ipo-desk/qib_intraday_log.json?ts="+Date.now();
+  const main   = "https://raw.githubusercontent.com/sanketicfai/ipo-desk/main/qib_intraday_log.json?ts="+Date.now();
+  const results = await Promise.allSettled([tryJSON(local), tryJSON(branch), tryJSON(main)]);
+  let best = null, srcName = null;
+  const names = ["local file","github (session branch)","github (main)"];
+  results.forEach((r,i)=>{
+    if(r.status==="fulfilled" && scoreLog(r.value) > scoreLog(best)){ best = r.value; srcName = names[i]; }
+  });
+  if(!best) throw new Error("no data source reachable");
+  best.snapshots.sort((a,b)=> (a.slot<b.slot?-1:1));
+  best._src = srcName;
+  return best;
+}
+
+/* ---------------- format helpers ---------------- */
+const fmtX = v => v==null ? "—" : (Math.round(v*100)/100).toLocaleString("en-IN");
+const fmtInt = v => v==null ? "—" : Math.round(v).toLocaleString("en-IN");
+const fmtL = v => v==null ? "—" : (v/100000).toFixed(2)+" L";
+const fmtShort = v => v>=1e7 ? (v/1e7).toFixed(1)+"Cr" : v>=1e5 ? (v/1e5).toFixed(1)+"L" : v>=1e3 ? Math.round(v/1e3)+"k" : String(Math.round(v));
+const fmtCr = v => v==null ? "" : "₹"+(Math.round(v).toLocaleString("en-IN"))+" Cr";
+const slotLabel = s => { let [h,m]=s.split(":").map(Number); const ap=h>=12?"PM":"AM"; h=h%12||12; return h+":"+String(m).padStart(2,"0")+" "+ap; };
+const cap = s => s.charAt(0).toUpperCase()+s.slice(1);
+const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/'/g,"&#39;");
+
+/* ---------------- cards ---------------- */
+function latestSnap(){ return LOG.snapshots[LOG.snapshots.length-1]; }
+function prevSnap(){ return LOG.snapshots.length>1 ? LOG.snapshots[LOG.snapshots.length-2] : null; }
+
+function renderCards(){
+  const cur = latestSnap(), prev = prevSnap();
+  const maxQib = Math.max(50, ...IPOS.map(i => (cur.data[i]&&cur.data[i].times&&cur.data[i].times.qib)||0));
+  const el = document.getElementById("cards");
+  el.innerHTML = "";
+  for(const ipo of IPOS){
+    const d = cur.data[ipo]; if(!d) continue;
+    const p = prev && prev.data[ipo];
+    const t = d.times || {};
+    const chip = (cat)=>{
+      const v = t[cat], pv = p && p.times ? p.times[cat] : null;
+      const delta = (v!=null && pv!=null) ? (v-pv) : null;
+      const dcls = delta==null ? "" : (delta>0 ? (delta>3?"hot":"up") : "");
+      const dtxt = delta==null ? "" : (delta>0?"▲ ":"")+Math.abs(delta).toFixed(delta>=10?1:2)+"x";
+      return `<div class="chip"><div class="k">${CATLBL[cat]||cap(cat)}</div><div class="v">${fmtX(v)}×</div><div class="d ${dcls}">${dtxt}</div></div>`;
+    };
+    const demand = d.demand_cr ? d.demand_cr.total : null;
+    const apps = d.apps_total;
+    el.innerHTML += `
+      <div class="card">
+        <div class="top"><span class="nm">${ipo}</span><span class="close">CLOSING 5 PM</span></div>
+        <div class="bigrow"><span class="big">${fmtX(t.total)}×</span><span class="lbl">total subscribed</span></div>
+        <div class="chips">${CATS.map(chip).join("")}</div>
+        <div class="qibbar"><i style="width:${Math.min(100,(t.qib||0)/maxQib*100)}%"></i></div>
+        <div class="cardfoot">
+          <span>Applications: <b>${apps!=null?fmtInt(apps):"—"}</b>${apps!=null?` (${fmtL(apps)})`:""}</span>
+          ${demand?`<span>Demand: <b>${fmtCr(demand)}</b></span>`:""}
+          ${d.shares&&d.shares.total?`<span title="${fmtInt(d.shares.total.applied)} applied">Shares: <b>${fmtL(d.shares.total.applied)}</b> of ${fmtL(d.shares.total.offer)}</span>`:""}
+        </div>
+      </div>`;
+  }
+}
+
+/* ---------------- notice ---------------- */
+function noticeFor(snap){
+  const prev = LOG.snapshots[LOG.snapshots.indexOf(snap)-1];
+  const date = (snap.captured_ist||"").slice(0,10);
+  let out = "";
+  out += `📢 IPO CLOSING-DAY NOTICE — ${date} ${slotLabel(snap.slot)} IST  (bidding closes 5:00 PM)\n`;
+  out += `QIB PARTICIPATION — share-wise subscription\n`;
+  const rows = IPOS.filter(i=>snap.data[i]&&snap.data[i].times).map(ipo=>{
+    const d = snap.data[ipo], t = d.times, p = prev&&prev.data[ipo]&&prev.data[ipo].times;
+    const dl = (p&&p.qib!=null&&t.qib!=null)?` (▲ +${(t.qib-p.qib).toFixed(2)}x vs ${slotLabel(prev.slot)})`:"";
+    const dem = d.demand_cr&&d.demand_cr.qib?` — QIB bid ${fmtCr(d.demand_cr.qib)}`:"";
+    const fii = d.demand_cr&&d.demand_cr.qib_fii?` [FII ${fmtCr(d.demand_cr.qib_fii)} · DII ${fmtCr(d.demand_cr.qib_dii||0)} · MF ${fmtCr(d.demand_cr.qib_mf||0)}]`:"";
+    return `• ${ipo}: ${fmtX(t.qib)}×${dl}${dem}${fii}`;
+  });
+  out += rows.join("\n")+"\n\n";
+  out += `TOTAL SUBSCRIPTION (× shares)\n`;
+  out += IPOS.filter(i=>snap.data[i]&&snap.data[i].times).map(ipo=>{
+    const t=snap.data[ipo].times;
+    return `• ${SHORT[ipo]}: Total ${fmtX(t.total)}×  | QIB ${fmtX(t.qib)}×  | NII ${fmtX(t.nii)}×  | Retail ${fmtX(t.retail)}×`;
+  }).join("\n")+"\n\n";
+  if(IPOS.some(i=>snap.data[i]&&snap.data[i].apps)){
+    out += `APPLICATION-WISE (approx. no. of applications)\n`;
+    out += IPOS.filter(i=>snap.data[i]&&snap.data[i].apps).map(ipo=>{
+      const a=snap.data[ipo].apps||{};
+      const parts=[];
+      for(const k of ["retail","snii","bnii"]){ if(a[k]) parts.push(`${CATLBL[k]} ${fmtInt(a[k].applied)} (${fmtX(a[k].times)}×)`); }
+      const tot = snap.data[ipo].apps_total;
+      return `• ${SHORT[ipo]}: total ${tot!=null?fmtInt(tot):"—"}${tot!=null?` (${fmtL(tot)})`:""} — ${parts.join(", ")}`;
+    }).join("\n")+"\n\n";
+  }
+  if(IPOS.some(i=>snap.data[i]&&snap.data[i].shares&&snap.data[i].shares.total)){
+    out += `SHARE-WISE BIDS (offer → applied shares)\n`;
+    out += IPOS.filter(i=>snap.data[i]&&snap.data[i].shares&&snap.data[i].shares.total).map(ipo=>{
+      const s=snap.data[ipo].shares;
+      return `• ${SHORT[ipo]}: ${fmtInt(s.total.offer)} → ${fmtInt(s.total.applied)} (${fmtX(snap.data[ipo].times.total)}×)`;
+    }).join("\n")+"\n";
+  }
+  out += `\nSource: BSE & NSE live bid data (via IPOJi)${snap.src_updated?`, source updated ${slotLabel(snap.src_updated)}`:""} · captured ${slotLabel(snap.slot)} IST\n`;
+  return out;
+}
+
+function renderNotice(){
+  const snaps = LOG.snapshots;
+  const sel = document.getElementById("slotSel");
+  sel.innerHTML = snaps.map(s=>`<option value="${s.slot}">${slotLabel(s.slot)}${s.final?" · close":""}</option>`).join("");
+  if(!noticeSlot || !snaps.find(s=>s.slot===noticeSlot)) noticeSlot = snaps[snaps.length-1].slot;
+  sel.value = noticeSlot;
+  const snap = snaps.find(s=>s.slot===noticeSlot) || snaps[snaps.length-1];
+  document.getElementById("noticeTxt").textContent = noticeFor(snap);
+}
+document.getElementById("slotSel").addEventListener("change", e=>{ noticeSlot = e.target.value; renderNotice(); });
+document.getElementById("copyBtn").addEventListener("click", async ()=>{
+  try{ await navigator.clipboard.writeText(document.getElementById("noticeTxt").textContent);
+       const b=document.getElementById("copyBtn"); b.textContent="✓ Copied"; setTimeout(()=>b.textContent="⧉ Copy",1500);
+  }catch(e){ alert("Copy failed — select the text manually."); }
+});
+
+/* ---------------- SVG chart engine (no external libs) ---------------- */
+function legendHTML(items){
+  if(!items.length) return "";
+  return `<div class="legend">` + items.map(s=>
+    `<span><i style="background:${s.color}${s.dashed?";opacity:.8":""}"></i>${esc(s.label)}</span>`).join("") + `</div>`;
+}
+
+function svgChart(opts){
+  const el = opts.el, labels = opts.labels, series = opts.series;
+  const refLine = !!opts.refLine, height = opts.height || 320;
+  const fmtTick = opts.fmtTick || fmtX, fmtTip = opts.fmtTip || (v=>fmtX(v)+"×");
+  const w = Math.max(320, el.clientWidth || 760), h = height;
+  const L = 54, R = 14, T = opts.yTitle ? 20 : 12, B = 30;
+  const vals = series.flatMap(s=>s.data.filter(v=>v!=null));
+  if(!vals.length)
+    return `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:12.5px">⏳ waiting for the next snapshot…</div>`;
+  const vmax = Math.max(...vals, refLine ? 1.2 : 0);
+  const rawStep = vmax/4 || 1;
+  const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const norm = rawStep/mag;
+  const step = (norm<=1?1: norm<=2?2: norm<=2.5?2.5: norm<=5?5:10) * mag;
+  const ymax = Math.max(step, Math.ceil(vmax/step)*step);
+  const n = labels.length;
+  const X = i => L + (w-L-R)*(n===1 ? 0.5 : i/(n-1));
+  const Y = v => T + (h-T-B)*(1 - v/ymax);
+  let g = "";
+  for(let v=0; v<=ymax+1e-9; v+=step){
+    const yy = Y(v);
+    g += `<line x1='${L}' y1='${yy.toFixed(1)}' x2='${w-R}' y2='${yy.toFixed(1)}' stroke='#eef2f7'/>`;
+    g += `<text x='${L-7}' y='${(yy+3.5).toFixed(1)}' text-anchor='end' font-size='10.5' fill='#94a3b8'>${fmtTick(v)}</text>`;
+  }
+  if(refLine && ymax>1.3){
+    const yy = Y(1);
+    g += `<line x1='${L}' y1='${yy.toFixed(1)}' x2='${w-R}' y2='${yy.toFixed(1)}' stroke='#fca5a5' stroke-width='1.2' stroke-dasharray='5 4'/>`;
+    g += `<text x='${w-R-2}' y='${(yy-4).toFixed(1)}' text-anchor='end' font-size='9.5' fill='#dc2626' font-weight='700'>1× fully subscribed</text>`;
+  }
+  const k = Math.ceil(n/8);
+  labels.forEach((lb,i)=>{
+    if(i%k===0 || i===n-1)
+      g += `<text x='${X(i).toFixed(1)}' y='${h-9}' text-anchor='middle' font-size='10.5' fill='#64748b'>${esc(lb)}</text>`;
+  });
+  for(const s of series){
+    const runs = []; let cur = [];
+    s.data.forEach((v,i)=>{ if(v==null){ if(cur.length) runs.push(cur); cur = []; } else cur.push([i,v]); });
+    if(cur.length) runs.push(cur);
+    for(const run of runs){
+      if(run.length>1)
+        g += `<polyline fill='none' stroke='${s.color}' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'${s.dashed?" stroke-dasharray='7 5'":""} points='${run.map(([i,v])=>`${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ")}'/>`;
+      for(const [i,v] of run)
+        g += `<circle cx='${X(i).toFixed(1)}' cy='${Y(v).toFixed(1)}' r='3.2' fill='${s.color}' stroke='#fff' stroke-width='1'><title>${esc(s.label)} · ${esc(labels[i])} — ${fmtTip(v)}</title></circle>`;
+    }
+  }
+  const ytl = opts.yTitle ? `<text x='6' y='12' font-size='10' fill='#94a3b8'>${esc(opts.yTitle)}</text>` : "";
+  return `<svg viewBox='0 0 ${w} ${h}' width='100%' height='${h}' style='display:block' role='img'>${ytl}${g}</svg>`;
+}
+
+function seriesFor(metric, {apps=false}={}){
+  return IPOS.filter(ipo=>LOG.snapshots.some(s=>s.data[ipo])).map(ipo=>({
+    label: SHORT[ipo], color: COLORS[ipo], dashed:false,
+    data: LOG.snapshots.map(s=>{
+      const d=s.data[ipo]; if(!d) return null;
+      if(apps){
+        if(metric==="total") return d.apps_total ?? null;
+        return d.apps && d.apps[metric] ? d.apps[metric].applied : null;
+      }
+      return d.times ? (d.times[metric] ?? null) : null;
+    })
+  }));
+}
+
+function drawCharts(){
+  const labels = LOG.snapshots.map(s=>slotLabel(s.slot));
+
+  const q1 = document.getElementById("qibChart");
+  const q1s = seriesFor("qib");
+  q1.innerHTML = legendHTML(q1s) + svgChart({el:q1, labels, series:q1s, refLine:true, height:320});
+
+  const minis = document.getElementById("minis"); minis.innerHTML = "";
+  for(const ipo of IPOS){
+    if(!LOG.snapshots.some(s=>s.data[ipo])) continue;
+    const box = document.createElement("div"); box.className = "panel mini";
+    box.innerHTML = `<div class="t"><span class="sw" style="background:${COLORS[ipo]}"></span>${ipo} — × subscribed (shares)</div><div class="chartbox" data-role="chart"></div>`;
+    minis.appendChild(box);
+    const holder = box.querySelector("[data-role=chart]");
+    const cats = CATS.filter(cat=>LOG.snapshots.some(s=>s.data[ipo]&&s.data[ipo].times&&(s.data[ipo].times[cat]!=null)));
+    const ds = cats.map(cat=>({
+      label: CATLBL[cat], color: CATCOLOR[cat], dashed:false,
+      data: LOG.snapshots.map(s=>s.data[ipo]&&s.data[ipo].times ? (s.data[ipo].times[cat]??null) : null)
+    }));
+    holder.innerHTML = legendHTML(ds) + svgChart({el:holder, labels, series:ds, refLine:true, height:210});
+  }
+
+  const a1 = document.getElementById("appsChart");
+  const a1s = seriesFor("total",{apps:true});
+  a1.innerHTML = legendHTML(a1s) + svgChart({el:a1, labels, series:a1s, height:320, yTitle:"applications",
+    fmtTick:fmtShort, fmtTip:fmtInt});
+
+  const a2 = document.getElementById("appxChart");
+  const appxCats = ["retail","snii","bnii"], appxColors = {retail:"#059669", snii:"#d97706", bnii:"#7c3aed"};
+  const a2s = IPOS.filter(ipo=>LOG.snapshots.some(s=>s.data[ipo]&&s.data[ipo].apps)).flatMap(ipo=>
+    appxCats.filter(k=>LOG.snapshots.some(s=>s.data[ipo]&&s.data[ipo].apps&&s.data[ipo].apps[k])).map(k=>({
+      label:`${SHORT[ipo]} · ${CATLBL[k]}`, color:appxColors[k], dashed:k!=="retail",
+      data: LOG.snapshots.map(s=>s.data[ipo]&&s.data[ipo].apps&&s.data[ipo].apps[k] ? s.data[ipo].apps[k].times : null)
+    })));
+  a2.innerHTML = legendHTML(a2s) + svgChart({el:a2, labels, series:a2s, refLine:true, height:320, yTitle:"× by apps"});
+}
+
+/* ---------------- history table ---------------- */
+function renderTable(){
+  const t = document.getElementById("histTable");
+  let h = "<thead><tr><th>Slot (IST)</th>";
+  for(const ipo of IPOS) h += `<th>${SHORT[ipo]} total× / QIB× / apps</th>`;
+  h += "</tr></thead><tbody>";
+  for(const s of [...LOG.snapshots].reverse()){
+    h += `<tr><td><b>${slotLabel(s.slot)}</b>${s.final?' <span class="pill warn"><span class="dot"></span>CLOSE</span>':""}</td>`;
+    for(const ipo of IPOS){
+      const d=s.data[ipo];
+      h += d ? `<td><b>${fmtX(d.times&&d.times.total)}×</b> · QIB ${fmtX(d.times&&d.times.qib)}× · ${d.apps_total!=null?fmtInt(d.apps_total):"—"}</td>` : "<td>—</td>";
+    }
+    h += "</tr>";
+  }
+  t.innerHTML = h + "</tbody>";
+}
+
+/* ---------------- clock & status ---------------- */
+function tickClock(){
+  const now = new Date();
+  const ist = new Date(now.getTime() + (330 + now.getTimezoneOffset())*60000);
+  const hh=ist.getHours(), mm=String(ist.getMinutes()).padStart(2,"0"), ss=String(ist.getSeconds()).padStart(2,"0");
+  const ap=hh>=12?"PM":"AM", h12=hh%12||12;
+  document.getElementById("clock").textContent = `${h12}:${mm}:${ss} ${ap} IST · auto-refresh 60s`;
+}
+setInterval(tickClock,1000); tickClock();
+
+function setStatus(kind, text){
+  const p=document.getElementById("statusPill"), t=document.getElementById("statusTxt");
+  p.className="pill "+kind; t.textContent=text;
+}
+
+/* ---------------- main refresh ---------------- */
+async function refresh(){
+  setStatus("live","REFRESHING…");
+  try{
+    LOG = await loadData();
+    renderCards(); renderNotice(); drawCharts(); renderTable();
+    const cur = latestSnap();
+    document.getElementById("asOf").textContent =
+      `as of ${slotLabel(cur.slot)} IST${cur.src_updated?` (source updated ${slotLabel(cur.src_updated)})`:""} · captured ${(cur.captured_ist||"").slice(11,16)} IST`;
+    document.getElementById("srcPill").textContent = "source: "+(LOG._src||"")+" · BSE/NSE via IPOJi";
+    setStatus("live", LOG.snapshots.some(s=>s.final) ? "CLOSED · FINAL DATA" : "LIVE · TRACKING");
+  }catch(e){
+    console.error(e);
+    setStatus("warn","DATA ERROR — retrying");
+  }
+}
+document.getElementById("refreshBtn").addEventListener("click", refresh);
+refresh();
+setInterval(refresh, 60000);
+</script>
+</body>
+</html>
