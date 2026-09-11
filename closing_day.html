@@ -347,7 +347,7 @@ function drawCharts(){
 
   const appxCats=["retail","snii","bnii"], appxColors={retail:"#059669", snii:"#d97706", bnii:"#7c3aed"};
   const appxDs = IPOS.filter(ipo=>LOG.snapshots.some(s=>s.data[ipo]&&s.data[ipo].apps)).flatMap(ipo=>
-    appxCats.filter(k=>LOG.snapshots.some(s=>s.data[ipo].apps&&s.data[ipo].apps[k])).map(k=>({
+    appxCats.filter(k=>LOG.snapshots.some(s=>s.data[ipo]&&s.data[ipo].apps&&s.data[ipo].apps[k])).map(k=>({
       label:`${SHORT[ipo]} · ${CATLBL[k]}`,
       data: LOG.snapshots.map(s=>s.data[ipo]&&s.data[ipo].apps&&s.data[ipo].apps[k] ? s.data[ipo].apps[k].times : null),
       borderColor: appxColors[k], borderDash: k==="retail"?[]:[6,3], backgroundColor:appxColors[k]+"18",

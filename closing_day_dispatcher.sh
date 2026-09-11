@@ -16,22 +16,11 @@ BRANCH="arena/01a08fb0-ipo-desk"
 IST() { TZ=Asia/Kolkata date "+%H:%M:%S"; }
 log() { echo "[$(IST) IST] $*"; }
 
-richest() { # stdout: "branch" or "main" whose committed log has more snapshots
-  python3 - <<'PY'
-import json, os, urllib.request
-tok = os.environ.get("GH_TOKEN", "")
-def get(ref):
-    url = f"https://api.github.com/repos/sanketicfai/ipo-desk/contents/qib_intraday_log.json?ref={ref}"
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json"})
-    try:
-        with urllib.request.urlopen(req, timeout=20) as r:
-            import base64
-            return len(json.loads(base64.b64decode(json.load(r)["content"]).decode()).get("snapshots", []))
-    except Exception:
-        return -1
-b, m = get("arena/01a08fb0-ipo-desk"), get("main")
-print("branch" if b >= m else "main")
-PY
+richest() { # stdout: ref (branch or main) whose committed log has more snapshots
+  local b m
+  b=$(gh api "repos/$REPO/contents/qib_intraday_log.json?ref=$BRANCH" --jq '.content' 2>/dev/null | base64 -d 2>/dev/null | python3 -c "import sys,json;print(len(json.load(sys.stdin).get('snapshots',[])))" 2>/dev/null || echo -1)
+  m=$(gh api "repos/$REPO/contents/qib_intraday_log.json?ref=main" --jq '.content' 2>/dev/null | base64 -d 2>/dev/null | python3 -c "import sys,json;print(len(json.load(sys.stdin).get('snapshots',[])))" 2>/dev/null || echo -1)
+  if [ "$((m))" -gt "$((b))" ]; then echo "main"; else echo "$BRANCH"; fi
 }
 
 sync_log() {
@@ -59,7 +48,7 @@ log "dispatcher started (stops after 17:25 IST)"
 sync_log
 while :; do
   HHMM=$(TZ=Asia/Kolkata date +%H%M)
-  if [ "10#$HHMM" -ge 1725 ]; then log "past 17:25 IST — done for today"; sync_log; break; fi
+  if [ "$((10#$HHMM))" -ge 1725 ]; then log "past 17:25 IST — done for today"; sync_log; break; fi
 
   log "→ pinging repository_dispatch closing-day-tick"
   code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "https://api.github.com/repos/$REPO/dispatches" \
