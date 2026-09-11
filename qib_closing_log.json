@@ -358,6 +358,288 @@
      }
     }
    }
+  },
+  {
+   "slot": "15:00",
+   "captured_ist": "2026-09-11T14:58:54+05:30",
+   "src_updated": "14:57",
+   "data": {
+    "Karamtara Engineering": {
+     "times": {
+      "qib": 84.46,
+      "nii": 41.06,
+      "bnii": 42.3,
+      "snii": 38.56,
+      "retail": 11.16,
+      "total": 38.51
+     },
+     "shares": {
+      "qib": {
+       "offer": 6889765,
+       "applied": 581929921
+      },
+      "nii": {
+       "offer": 5167323,
+       "applied": 2121491911
+      },
+      "bnii": {
+       "offer": 3444882,
+       "applied": 145724631
+      },
+      "snii": {
+       "offer": 1722441,
+       "applied": 66424560
+      },
+      "retail": {
+       "offer": 12057086,
+       "applied": 134608323
+      },
+      "total": {
+       "offer": 24114174,
+       "applied": 928687435
+      }
+     },
+     "apps": {
+      "bnii": {
+       "reserve": 4171,
+       "applied": 35512,
+       "times": 8.51
+      },
+      "snii": {
+       "reserve": 2085,
+       "applied": 78667,
+       "times": 37.73
+      },
+      "retail": {
+       "reserve": 204357,
+       "applied": 2075111,
+       "times": 10.15
+      }
+     },
+     "apps_total": 2189523,
+     "demand_cr": {
+      "qib": 14781.02,
+      "qib_fii": 7527.78,
+      "qib_dii": 5654.93,
+      "qib_mf": 732.0,
+      "qib_others": 866.32,
+      "nii": 5388.59,
+      "bnii": 3701.41,
+      "snii": 1687.18,
+      "retail": 3419.05,
+      "total": 23588.66
+     }
+    },
+    "Steamhouse India": {
+     "times": {
+      "qib": 9.22,
+      "nii": 38.49,
+      "bnii": 36.84,
+      "snii": 41.78,
+      "retail": 13.99,
+      "total": 17.88
+     },
+     "shares": {
+      "qib": {
+       "offer": 10222223,
+       "applied": 94254540
+      },
+      "nii": {
+       "offer": 7666667,
+       "applied": 295053910
+      },
+      "bnii": {
+       "offer": 5111111,
+       "applied": 188270430
+      },
+      "snii": {
+       "offer": 2555556,
+       "applied": 106783480
+      },
+      "retail": {
+       "offer": 17888889,
+       "applied": 250240435
+      },
+      "total": {
+       "offer": 35777779,
+       "applied": 639548885
+      }
+     },
+     "apps": {
+      "bnii": {
+       "reserve": 1973,
+       "applied": 14107,
+       "times": 7.15
+      },
+      "snii": {
+       "reserve": 987,
+       "applied": 40318,
+       "times": 40.85
+      },
+      "retail": {
+       "reserve": 96697,
+       "applied": 1247377,
+       "times": 12.9
+      }
+     },
+     "apps_total": 1302193,
+     "demand_cr": {
+      "qib": 763.46,
+      "qib_fii": 244.74,
+      "qib_dii": 336.49,
+      "qib_mf": 0.0,
+      "qib_others": 182.24,
+      "nii": 2389.94,
+      "bnii": 1524.99,
+      "snii": 864.95,
+      "retail": 2026.95,
+      "total": 5180.35
+     }
+    },
+    "Rentomojo": {
+     "times": {
+      "qib": 78.67,
+      "nii": 59.67,
+      "bnii": 64.55,
+      "snii": 49.91,
+      "retail": 12.75,
+      "total": 41.57,
+      "employee": 13.98
+     },
+     "shares": {
+      "qib": {
+       "offer": 6205780,
+       "applied": 488215074
+      },
+      "nii": {
+       "offer": 4654334,
+       "applied": 277714304
+      },
+      "bnii": {
+       "offer": 3102889,
+       "applied": 200286328
+      },
+      "snii": {
+       "offer": 1551445,
+       "applied": 77427976
+      },
+      "retail": {
+       "offer": 10860113,
+       "applied": 138486301
+      },
+      "total": {
+       "offer": 21772310,
+       "applied": 905144024
+      },
+      "employee": {
+       "offer": 52083,
+       "applied": 728345
+      }
+     },
+     "apps": {
+      "bnii": {
+       "reserve": 5990,
+       "applied": 80252,
+       "times": 13.4
+      },
+      "snii": {
+       "reserve": 2995,
+       "applied": 146117,
+       "times": 48.79
+      },
+      "retail": {
+       "reserve": 293517,
+       "applied": 3399535,
+       "times": 11.58
+      },
+      "employee": {
+       "reserve": null,
+       "applied": 13626,
+       "times": null
+      }
+     },
+     "apps_total": 3640179,
+     "demand_cr": {
+      "qib": 19723.89,
+      "qib_fii": 6179.57,
+      "qib_dii": 7886.9,
+      "qib_mf": 1705.64,
+      "qib_others": 3951.78,
+      "nii": 11219.66,
+      "bnii": 8091.57,
+      "snii": 3128.09,
+      "retail": 5594.85,
+      "total": 36567.82,
+      "employee": 29.43
+     }
+    },
+    "LCC Projects": {
+     "times": {
+      "qib": 21.48,
+      "nii": 53.19,
+      "bnii": 49.66,
+      "snii": 60.24,
+      "retail": 20.81,
+      "total": 27.94
+     },
+     "shares": {
+      "qib": {
+       "offer": 5851247,
+       "applied": 125705718
+      },
+      "nii": {
+       "offer": 4388435,
+       "applied": 233404866
+      },
+      "bnii": {
+       "offer": 2925623,
+       "applied": 145286964
+      },
+      "snii": {
+       "offer": 1462812,
+       "applied": 88117902
+      },
+      "retail": {
+       "offer": 10239681,
+       "applied": 213124410
+      },
+      "total": {
+       "offer": 20479363,
+       "applied": 572234994
+      }
+     },
+     "apps": {
+      "bnii": {
+       "reserve": 2049,
+       "applied": 19955,
+       "times": 9.74
+      },
+      "snii": {
+       "reserve": 1024,
+       "applied": 60384,
+       "times": 58.97
+      },
+      "retail": {
+       "reserve": 103389,
+       "applied": 1902643,
+       "times": 18.4
+      }
+     },
+     "apps_total": 1983303,
+     "demand_cr": {
+      "qib": 1835.3,
+      "qib_fii": 389.2,
+      "qib_dii": 78.47,
+      "qib_mf": 0.0,
+      "qib_others": 1367.64,
+      "nii": 3407.71,
+      "bnii": 2121.19,
+      "snii": 1286.52,
+      "retail": 3111.62,
+      "total": 8354.63
+     }
+    }
+   }
   }
  ]
 }
