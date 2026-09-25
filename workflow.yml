@@ -1,0 +1,85 @@
+name: IPO Desk - refresh data & publish dashboard
+
+# Free forever: public repos get unlimited GitHub-hosted runner minutes and free Pages hosting.
+# This job wakes up on a schedule, refreshes every source, writes the static dashboard
+# into site/ and publishes it to GitHub Pages. Your PC can be switched off.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"        # every 10 min (GitHub may delay a few minutes at peak times)
+  workflow_dispatch:               # "Run workflow" button in the Actions tab
+  push:
+    branches: [main]
+    paths:                         # redeploy when you change the code or the dashboard
+      - "ipo_desk.py"
+      - "sources.py"
+      - "merge.py"
+      - "store.py"
+      - "util.py"
+      - "export_static.py"
+      - "dashboard.html"
+      - "requirements.txt"
+      - ".github/workflows/ipo-desk.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# never let two refreshes overlap
+concurrency:
+  group: ipo-desk-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # The SQLite database is the desk's memory (GMP history, fetched pages, source health).
+      # It is handed from one run to the next through the Actions cache, so we never commit it.
+      - name: Restore database
+        uses: actions/cache/restore@v4
+        with:
+          path: ipo_desk.db*
+          key: ipodesk-db-${{ github.run_id }}
+          restore-keys: |
+            ipodesk-db-
+
+      - name: Refresh data and build the static site
+        env:
+          TZ: Asia/Kolkata
+          PYTHONUNBUFFERED: "1"
+        run: python ipo_desk.py --once --static-dir site --budget 420 --cg-budget 0
+
+      - name: Save database
+        if: always()
+        continue-on-error: true          # a first-ever run may have nothing to save yet
+        uses: actions/cache/save@v4
+        with:
+          path: ipo_desk.db*
+          key: ipodesk-db-${{ github.run_id }}
+
+      - name: Upload dashboard
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Publish to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
