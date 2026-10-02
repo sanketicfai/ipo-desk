@@ -13,6 +13,7 @@ on:
     paths:                         # redeploy when you change the code or the dashboard
       - "ipo_desk.py"
       - "sources.py"
+      - "market.py"
       - "merge.py"
       - "store.py"
       - "util.py"

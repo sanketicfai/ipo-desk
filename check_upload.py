@@ -8,6 +8,7 @@ the SQLite database the desk writes on every run. It must never be uploaded.
     python check_upload.py            # checks the folder this script sits in
     python check_upload.py C:\\path\\to\\ipo-desk
 """
+import ast
 import os
 import sys
 
@@ -25,6 +26,40 @@ def human(n):
         if n < 1024 or unit == "GB":
             return f"{n:,.0f} {unit}" if unit == "B" else f"{n:,.1f} {unit}"
         n /= 1024
+
+
+
+def audit_imports(root):
+    """Catch the classic 'works on my PC, ModuleNotFoundError in the cloud' miss:
+    a .py file imports a module that is not in this folder and is not installed
+    by requirements.txt."""
+    modules = {f[:-3] for f in os.listdir(root) if f.endswith(".py")}
+    reqs = ""
+    rp = os.path.join(root, "requirements.txt")
+    if os.path.exists(rp):
+        reqs = open(rp, encoding="utf-8").read().lower()
+    supplied = {"requests", "bs4", "beautifulsoup4", "openpyxl", "lxml", "pandas", "yaml", "pyyaml"}
+    missing = {}
+    for f in sorted(os.listdir(root)):
+        if not f.endswith(".py"):
+            continue
+        try:
+            tree = ast.parse(open(os.path.join(root, f), encoding="utf-8").read())
+        except (OSError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            names = []
+            if isinstance(node, ast.Import):
+                names = [a.name.split(".")[0] for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                names = [node.module.split(".")[0]]
+            for n in names:
+                if n in modules or n in sys.stdlib_module_names or n in supplied:
+                    continue
+                if n.split(".")[0] in reqs:
+                    continue
+                missing.setdefault(n, set()).add(f)
+    return missing
 
 
 def main():
@@ -70,10 +105,19 @@ def main():
         print(f"  {human(sz):>10}  {rel}")
     print()
 
-    if too_big:
-        print("VERDICT: upload blocked. Move the flagged file(s) out of this folder (or delete them),")
-        print("         then drag the folder's CONTENTS again. Do not rename them and upload anyway -")
-        print("         the database is your PC's live data and is rebuilt/kept in the cloud by itself.")
+    missing_mods = audit_imports(root)
+    if missing_mods:
+        print("Modules imported by this folder's python files but NOT here and not installed")
+        print("by requirements.txt - the cloud job would crash with ModuleNotFoundError:")
+        for mod, users in sorted(missing_mods.items()):
+            print(f"  {mod}.py  <- imported by {', '.join(sorted(users))}")
+        print()
+
+    if too_big or missing_mods:
+        print("VERDICT: upload blocked - fix the list above first:")
+        print("  * a file that must not be uploaded -> move it out of the folder (or delete it);")
+        print("  * a module that is missing        -> copy <module>.py in from the project folder.")
+        print("  Then drag the folder's CONTENTS into github.com again.")
         return 1
     if big:
         print("VERDICT: under the hard limit, but these files are unnecessary - leave them out.")
