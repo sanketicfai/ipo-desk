@@ -155,6 +155,18 @@ class Store:
                    for r in rows if r.get("key") and r.get("ts")])
         return self.q("SELECT COUNT(*) c FROM sub_hist")[0]["c"] - before
 
+    def put_ohlc_ignore(self, rows):
+        """Insert only candles we don't already have - used when seeding history from a local database."""
+        if not rows:
+            return 0
+        before = self.q("SELECT COUNT(*) c FROM ohlc")[0]["c"]
+        self.many(
+            "INSERT OR IGNORE INTO ohlc(key,day,open,high,low,close,volume,src) VALUES(?,?,?,?,?,?,?,?)",
+            [(r.get("key"), r.get("day"), r.get("open"), r.get("high"), r.get("low"), r.get("close"),
+              r.get("volume"), r.get("src") or "seed")
+             for r in rows if r.get("key") and r.get("day") and r.get("close")])
+        return self.q("SELECT COUNT(*) c FROM ohlc")[0]["c"] - before
+
     def gmp_for(self, key):
         return [dict(r) for r in self.q(
             "SELECT day,source,gmp,gmp_pct,est_listing,sub2,est_profit,updated FROM gmp_hist WHERE key=? ORDER BY day",

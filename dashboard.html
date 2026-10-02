@@ -1602,7 +1602,7 @@ function priceChart(host, x, d, mode){
   const issue = d.issue_price || d.price_high || d.price_low;
   const leg = $('#gmpLegend');
   const toV = (price) => !isNum(price) ? null : (mode === 'pct' ? (issue ? (price / issue - 1) * 100 : null) : price);
-  const gmpPts = hist.map(h => ({t: dparts(h.date).t, v: toV(h.gmp + (issue || 0)), gmp: h.gmp, pct: h.gmp_pct}));
+  const gmpPts = hist.map(h => ({t: dparts(h.date).t, v: toV(h.gmp + (issue || 0)), gmp: h.gmp, pct: h.gmp_pct, date: h.date}));
   const lday = d.dates && d.dates.listing ? dparts(d.dates.listing).t : null;
   /* the share's own story stops two months after listing - after that the picture is no longer about the IPO */
   const STOP_DAYS = 62;
@@ -1660,13 +1660,45 @@ function priceChart(host, x, d, mode){
   const padY = (dHi - dLo) * 0.12 || Math.max(1, Math.abs(dHi) * 0.05);
   const ticks = niceTicks(dLo - padY, dHi + padY);
   const y0 = ticks[0], y1 = ticks[ticks.length - 1];
-  const X = v => P.l + (v - x0) / (x1 - x0) * (W - P.l - P.r);
-  const Y = v => P.t + (1 - (v - y0) / (y1 - y0)) * (H - P.t - P.b);
+  /* ---- the X axis runs on trading days, not on the calendar ---------------------------
+     Saturdays, Sundays and market holidays used to leave real gaps in the line: the axis
+     was plain time, so every closed day showed up as dead space and short records looked
+     like straight lines. The axis is now the list of days that actually carry a price or a
+     grey-market quote, evenly spaced, each one labelled with its own date. A closed day
+     simply is not there.                                                                */
+  const a50T = (d.dates && d.dates.anchor_50) ? dparts(d.dates.anchor_50).t : null;
+  const todayISO = (S.data && S.data.today) || new Date().toISOString().slice(0, 10);
+  const dayKey = t => new Date(t).toISOString().slice(0, 10);
+  let axisDays = [...new Set(
+      pxs.map(p => p.date)
+        .concat(gmpPts.map(p => p.date))
+        .concat(marks.map(([, v]) => dayKey(v)))
+        .concat(a50T ? [dayKey(a50T)] : [])
+        .concat([todayISO])
+    )].filter(Boolean).filter(ds => { const t = dparts(ds).t; return t >= x0 && t <= x1; }).sort();
+  if (axisDays.length < 2) axisDays = [dayKey(x0), dayKey(x1)];
+  const dayIdx = {}; axisDays.forEach((ds, i) => { dayIdx[ds] = i; });
+  const nearestIdx = t => {
+    const ds = dayKey(t);
+    if (ds in dayIdx) return dayIdx[ds];
+    let best = 0;                                   // a timestamp that is not a day slot
+    for (let i = 1; i < axisDays.length; i++)
+      if (Math.abs(dparts(axisDays[i]).t - t) < Math.abs(dparts(axisDays[best]).t - t)) best = i;
+    return best;
+  };
+  const span = Math.max(1, axisDays.length - 1);
+  const X = v => P.l + nearestIdx(v) / span * (W - P.l - P.r);
+  /* the price plot leaves the bottom strip to volume: one bar per trading day */
+  const VOLH = 58, volBottom = H - P.b - 5, volTop = volBottom - VOLH;
+  const Y = v => P.t + (1 - (v - y0) / (y1 - y0)) * (volTop - P.t);
   const fy = v => mode === 'pct' ? pctS(v, 1).replace('+', '') : (v < 0 ? '−₹' : '₹') + n2(Math.abs(v), 1);
   let g = '';
   ticks.forEach(v => { g += `<line x1="${P.l}" x2="${W - P.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="${v === 0 ? 'var(--muted)' : 'var(--line)'}" ${v === 0 ? 'stroke-width="1.2"' : 'stroke-dasharray="3 4"'}/><text x="${P.l - 9}" y="${Y(v) + 4}" text-anchor="end" font-size="11.5" fill="var(--muted)">${fy(v)}</text>`; });
-  const days = Math.round((x1 - x0) / 864e5), every = Math.max(1, Math.ceil(days / 10));
-  for (let k = 0; k <= days; k += every){ const tv = x0 + k * 864e5; const dt = new Date(tv); g += `<text x="${X(tv)}" y="${H - P.b + 20}" text-anchor="middle" font-size="11" fill="var(--muted)">${dt.getUTCDate()} ${MON[dt.getUTCMonth()]}</text>`; }
+  const every = Math.max(1, Math.ceil(axisDays.length / 10));
+  for (let i = 0; i < axisDays.length; i += every){
+    const tv = dparts(axisDays[i]).t, dt = new Date(tv);
+    g += `<text x="${X(tv)}" y="${H - P.b + 20}" text-anchor="middle" font-size="11" fill="var(--muted)">${dt.getUTCDate()} ${MON[dt.getUTCMonth()]}</text>`;
+  }
 
   /* ---- the day markers: two lanes, and any label that would still touch is dropped ---- */
   const laneUsed = [-1e9, -1e9];
@@ -1676,7 +1708,7 @@ function priceChart(host, x, d, mode){
     if (lane === 1 && xx - laneUsed[1] < 52) return;                  // no room in either lane: no label
     laneUsed[lane] = xx;
     const ly = lane === 0 ? P.t - 22 : P.t - 9;
-    g += `<line x1="${xx}" x2="${xx}" y1="${P.t}" y2="${H - P.b}" stroke="var(--violet)" stroke-dasharray="2 4" opacity=".6"/>`
+    g += `<line x1="${xx}" x2="${xx}" y1="${P.t}" y2="${volTop}" stroke="var(--violet)" stroke-dasharray="2 4" opacity=".6"/>`
       + `<text x="${xx}" y="${ly}" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--violet)" paint-order="stroke" stroke="var(--card)" stroke-width="3">${l}</text>`;
   });
   /* anchor 50% lock-in: the quiet date that can move the price */
@@ -1685,8 +1717,8 @@ function priceChart(host, x, d, mode){
   if (a50 && a50 >= x0 && a50 <= x1 + 40 * 864e5){
     const near = Math.round((a50 - todayT()) / 864e5);
     const col = (near <= 3 && near >= 0) ? 'var(--amber)' : 'var(--muted)';
-    g += `<line x1="${X(a50)}" x2="${X(a50)}" y1="${P.t}" y2="${H - P.b}" stroke="${col}" stroke-dasharray="4 3" stroke-width="1.2"/>`
-       + `<text x="${X(a50)}" y="${H - P.b - 7}" text-anchor="middle" font-size="10.5" font-weight="600" fill="${col}" paint-order="stroke" stroke="var(--card)" stroke-width="3">anchor 50%</text>`;
+    g += `<line x1="${X(a50)}" x2="${X(a50)}" y1="${P.t}" y2="${volTop}" stroke="${col}" stroke-dasharray="4 3" stroke-width="1.2"/>`
+       + `<text x="${Math.min(Math.max(X(a50), P.l + 36), W - P.r - 36)}" y="${volTop - 7}" text-anchor="middle" font-size="10.5" font-weight="600" fill="${col}" paint-order="stroke" stroke="var(--card)" stroke-width="3">anchor 50%</text>`;
     anchorMark = `<div class="anchorflag${(near <= 3 && near >= 0) ? ' now' : ''}">`
       + (near > 0 ? `Anchor 50% lock-in completes in ${near} day${near === 1 ? '' : 's'}`
           : near === 0 ? 'Anchor 50% lock-in completes today'
@@ -1703,6 +1735,34 @@ function priceChart(host, x, d, mode){
     ? `<path d="${bandPts.map((p, i) => `${i ? 'L' : 'M'}${X(p.t).toFixed(1)},${Y(p.vhi).toFixed(1)}`).join(' ')} `
       + `${bandPts.slice().reverse().map(p => `L${X(p.t).toFixed(1)},${Y(p.vlo).toFixed(1)}`).join(' ')} Z" fill="var(--green)" opacity=".13"/>`
     : '';
+  /* ---- volume, one bar for every trading day ------------------------------------------
+     Height is the day's traded quantity against the busiest day on the chart; colour says
+     whether the close was up (green) or down (red) on the day before. The dashed line is
+     the average day, so a spike stands out at a glance.                                */
+  const volPts = pxs.filter(p => isNum(p.vol) && p.vol > 0);
+  const maxVol = volPts.length ? Math.max(...volPts.map(p => p.vol)) : 0;
+  let volBars = '', volNote = '';
+  if (volPts.length > 1 && maxVol > 0){
+    const bw = Math.max(1.6, Math.min(13, (W - P.l - P.r) / span * 0.62));
+    const H2 = volBottom - volTop - 8;
+    const avg = volPts.reduce((a, p) => a + p.vol, 0) / volPts.length;
+    /* one launch day can trade twenty times the normal volume and flatten every other bar to
+       nothing on a linear scale. Height goes as the square root of the quantity, so an average
+       day stays visible next to the spike, and the tooltip still carries the exact number. */
+    let prevC = null;
+    volBars = volPts.map(p => {
+      const up = prevC == null ? true : p.close >= prevC;
+      prevC = p.close;
+      const h = Math.max(1.6, Math.sqrt(p.vol / maxVol) * H2);
+      return `<rect x="${(X(p.t) - bw / 2).toFixed(1)}" y="${(volBottom - h).toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="1"`
+        + ` fill="${up ? 'var(--green)' : 'var(--red)'}" opacity=".38"><title>${p.date}: ${n2(p.vol / 1e5, 2)} lakh shares</title></rect>`;
+    }).join('');
+    const ya = volBottom - Math.sqrt(Math.min(1, avg / maxVol)) * H2;
+    volNote = `<line x1="${P.l}" x2="${W - P.r}" y1="${volBottom}" y2="${volBottom}" stroke="var(--line)"/>`
+      + `<line x1="${P.l}" x2="${W - P.r}" y1="${ya.toFixed(1)}" y2="${ya.toFixed(1)}" stroke="var(--muted)" stroke-dasharray="3 4" opacity=".7"/>`
+      + `<text x="${P.l + 5}" y="${(ya - 3).toFixed(1)}" font-size="9.5" fill="var(--muted)">avg ${n2(avg / 1e5, 1)}L</text>`
+      + `<text x="${P.l + 5}" y="${volTop + 11}" font-size="10.5" fill="var(--muted)">volume — one bar a trading day · height ∝ √shares · peak ${n2(maxVol / 1e5, 1)}L</text>`;
+  }
   const pxBase = Math.max(y0, Math.min(0, y1));
   const pxArea = pxs.length > 1 ? `<path d="${path(pxs)} L${X(pxs[pxs.length - 1].t).toFixed(1)},${Y(pxBase).toFixed(1)} L${X(pxs[0].t).toFixed(1)},${Y(pxBase).toFixed(1)} Z" fill="url(#pa)"/>` : '';
 
@@ -1744,7 +1804,7 @@ function priceChart(host, x, d, mode){
     const xx = X(m.t), yy = Y(toV(m.price));
     const dot = m.filled ? `<circle cx="${xx}" cy="${yy}" r="5.4" fill="${m.col}"/>`
                          : `<circle cx="${xx}" cy="${yy}" r="4.4" fill="var(--card)" stroke="${m.col}" stroke-width="2.2"/>`;
-    const stem = m.filled ? `<line x1="${xx}" x2="${xx}" y1="${P.t}" y2="${H - P.b}" stroke="${m.col}" stroke-dasharray="2 4" opacity=".28"/>` : '';
+    const stem = m.filled ? `<line x1="${xx}" x2="${xx}" y1="${P.t}" y2="${volTop}" stroke="${m.col}" stroke-dasharray="2 4" opacity=".28"/>` : '';
     /* the number printed on the plot follows the mode: rupees on the rupee chart, the % against the
        issue price on the % chart. The key row underneath always carries both. */
     const pct = (isNum(issue) && issue) ? (m.price / issue - 1) * 100 : null;
@@ -1772,8 +1832,8 @@ function priceChart(host, x, d, mode){
   const stopNote = (lday && x1 >= lday + STOP_DAYS * 864e5) ? `<text x="${W - P.r - 2}" y="${P.t - 22}" text-anchor="end" font-size="10.5" fill="var(--muted)">first 2 months after listing</text>` : '';
   host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="price and GMP history">
     <defs><linearGradient id="pa" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--green)" stop-opacity=".18"/><stop offset="1" stop-color="var(--green)" stop-opacity="0"/></linearGradient></defs>
-    ${g}${stopNote}${pxBand}${pxArea}${issueLine}${gmpBandLine(vHi)}${gmpBandLine(vLo)}${labelHtml}${gmpLine}${pxLine}${gmpDots}${pxDots}${lvlMarks}${nowLabel}
-    <line id="gGuide" y1="${P.t}" y2="${H - P.b}" stroke="var(--muted)" stroke-width="1" opacity="0"/>
+    ${g}${stopNote}${pxBand}${pxArea}${volNote}${volBars}${issueLine}${gmpBandLine(vHi)}${gmpBandLine(vLo)}${labelHtml}${gmpLine}${pxLine}${gmpDots}${pxDots}${lvlMarks}${nowLabel}
+    <line id="gGuide" y1="${P.t}" y2="${volTop}" stroke="var(--muted)" stroke-width="1" opacity="0"/>
     <rect x="${P.l}" y="${P.t}" width="${W - P.l - P.r}" height="${H - P.t - P.b}" fill="transparent" id="gHit"/>
   </svg>${keyRow}<div class="tt" id="gTip"></div>${anchorMark}`;
   /* how far the price now sits from the two grey-market extremes */
@@ -1787,6 +1847,7 @@ function priceChart(host, x, d, mode){
   leg.innerHTML = `<span><i style="background:var(--violet)"></i>Issue price</span>`
     + (gmpPts.length ? `<span><i style="background:var(--blue)"></i>Grey-market implied</span>` : '')
     + (pxs.length ? `<span><i style="background:var(--green)"></i>Daily close${daily.length >= 3 ? ' · high–low band' : ''}</span>` : '')
+    + (volPts.length > 1 ? `<span><i style="background:var(--green);opacity:.4"></i>Volume, one bar a day</span>` : '')
     + `<span>${gmpPts.length ? gmpPts.length + ' GMP day' + (gmpPts.length > 1 ? 's' : '') : ''}${pxs.length ? (gmpPts.length ? ' · ' : '') + pxs.length + ' trading day' + (pxs.length > 1 ? 's' : '') : ''}</span>`;
   let gapHost = host.parentNode ? host.parentNode.querySelector('.gmpgap') : null;
   if (!gapHost && gapLine && host.parentNode){ gapHost = document.createElement('div'); gapHost.className = 'gmpgap'; host.insertAdjacentElement('afterend', gapHost); }

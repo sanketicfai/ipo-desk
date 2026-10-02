@@ -20,6 +20,7 @@ on:
       - "export_static.py"
       - "dashboard.html"
       - "cg_sub_cache.json"
+      - "seed/**"
       - "ohlc_backfill.py"
       - "cg_sub_backfill.py"
       - "requirements.txt"

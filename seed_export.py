@@ -44,10 +44,15 @@ def main():
         return 1
     sub = [{"key": r["key"], "ts": r["ts"], "source": r["source"], "data": json.loads(r["data"])}
            for r in db.execute("SELECT key,ts,source,data FROM sub_hist ORDER BY ts")]
+    try:      # daily candles - the shape of every price line and the market study
+        ohlc = [dict(r) for r in db.execute(
+            "SELECT key,day,open,high,low,close,volume,src FROM ohlc ORDER BY key,day")]
+    except sqlite3.OperationalError:
+        ohlc = []
     db.close()
 
     payload = {"exported": __import__("datetime").datetime.now().isoformat(timespec="seconds"),
-               "gmp": gmp, "sub": sub}
+               "gmp": gmp, "sub": sub, "ohlc": ohlc}
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with gzip.open(args.out, "wt", encoding="utf-8") as f:
         json.dump(payload, f, separators=(",", ":"), ensure_ascii=False)
@@ -56,6 +61,7 @@ def main():
     print(f"wrote {args.out}")
     print(f"  {len(gmp):,} GMP history rows  ({len({r['key'] for r in gmp}):,} IPOs)")
     print(f"  {len(sub):,} subscription snapshots")
+    print(f"  {len(ohlc):,} daily candles      ({len({r['key'] for r in ohlc}):,} scrips)")
     print(f"  {size/1024:.1f} KB compressed  ({os.path.getsize(args.db)/1e6:.0f} MB database shrunk to this)")
     if size > 20 * 1024 * 1024:
         print("  ! still large - that is fine for git, but tell me if it gets near 25 MB")

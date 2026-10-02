@@ -85,8 +85,10 @@ class Engine:
             data = json.loads(gzip.decompress(raw))
             n = self.store.put_gmp_ignore(data.get("gmp") or [])
             m = self.store.put_sub_ignore(data.get("sub") or [])
+            o = self.store.put_ohlc_ignore(data.get("ohlc") or [])
             self.store.kv_set("seed_hash", h)
-            log(f"seed: imported {n} GMP rows and {m} subscription snapshots from {os.path.basename(path)}")
+            log(f"seed: imported {n} GMP rows, {m} subscription snapshots and {o} daily candles "
+                f"from {os.path.basename(path)}")
             return n
         except Exception:
             log("seed import failed", traceback.format_exc(limit=3))
