@@ -19,8 +19,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 # everything the repository needs - nothing else
 FILES = [
-    "dashboard.html", "ipo_desk.py", "sources.py", "merge.py", "store.py", "util.py",
+    "dashboard.html", "ipo_desk.py", "sources.py", "merge.py", "store.py", "value.py", "util.py",
+    "cg_sub_cache.json", "cg_sub_backfill.py",        # the archive of category-wise bidding records
+    "ohlc_backfill.py",                               # the daily-candles backfill for the price study
     "export_static.py", "serve_site.py", "seed_export.py", "check_upload.py",
+    "day1.py", "xlsx.py", "build_standalone.py",
     "requirements.txt", "start.bat", "start.sh", "publish-now.bat", "check-upload.bat",
     "make_upload_folder.py", "make-upload-folder.bat",
     "README.md", "SETUP-ONLINE.md", "workflow.yml", ".gitignore",

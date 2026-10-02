@@ -15,11 +15,19 @@ CREATE TABLE IF NOT EXISTS gmp_hist (     -- one row per IPO / day / source
   est_profit REAL, updated TEXT, PRIMARY KEY (key, day, source));
 CREATE TABLE IF NOT EXISTS sub_hist (     -- subscription snapshots (live polling)
   key TEXT, ts TEXT, source TEXT, data TEXT, PRIMARY KEY (key, ts, source));
+CREATE TABLE IF NOT EXISTS price_hist (   -- one close per IPO per trading day (daily series)
+  key TEXT, day TEXT, close REAL, src TEXT, final INTEGER DEFAULT 0, fetched_at TEXT,
+  PRIMARY KEY (key, day));
+CREATE TABLE IF NOT EXISTS ohlc (          -- one daily candle per IPO per trading day (open/high/low/close/volume)
+  key TEXT, day TEXT, open REAL, high REAL, low REAL, close REAL, volume REAL, src TEXT,
+  PRIMARY KEY (key, day));
 CREATE TABLE IF NOT EXISTS source_status (
   source TEXT PRIMARY KEY, ok INTEGER, last_ok TEXT, last_try TEXT, last_error TEXT, calls INTEGER, fails INTEGER);
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
 CREATE INDEX IF NOT EXISTS gmp_key ON gmp_hist(key);
 CREATE INDEX IF NOT EXISTS sub_key ON sub_hist(key);
+CREATE INDEX IF NOT EXISTS price_key ON price_hist(key);
+CREATE INDEX IF NOT EXISTS ohlc_key ON ohlc(key);
 """
 
 
@@ -159,6 +167,64 @@ class Store:
         return out
 
     # ------------------------------------------------------------------ subscription snapshots
+    # ---------------------------------------------------------------- price history
+    def put_ohlc(self, key, bars, src="yahoo"):
+        """Upsert daily candles. The exchange/Yahoo value for a day replaces an older one for that day."""
+        n = 0
+        with self.lock:
+            for b in bars or []:
+                day = b.get("date") or b.get("day")
+                c = b.get("close")
+                if not (key and day and c):
+                    continue
+                self.db.execute(
+                    "INSERT INTO ohlc(key, day, open, high, low, close, volume, src) VALUES (?,?,?,?,?,?,?,?) "
+                    "ON CONFLICT(key, day) DO UPDATE SET open=excluded.open, high=excluded.high, low=excluded.low, "
+                    "close=excluded.close, volume=excluded.volume, src=excluded.src WHERE excluded.close IS NOT NULL",
+                    (key, day, b.get("open"), b.get("high"), b.get("low"), c, b.get("volume"), src))
+                n += 1
+            self.db.commit()
+        return n
+
+    def ohlc_for(self, key, limit=260):
+        rows = self.q("SELECT day, open, high, low, close, volume FROM ohlc WHERE key=? ORDER BY day DESC LIMIT ?",
+                      (key, limit))
+        return [dict(r, date=r["day"]) for r in reversed(rows)]      # `date` for the dashboard, `day` for SQL
+
+    def put_price(self, key, day, close, src=None, final=False):
+        """Upsert one daily close. An official (final) close is never overwritten by a live tick."""
+        try:
+            close = float(close)
+        except (TypeError, ValueError):
+            return False
+        if not (key and day and close > 0):
+            return False
+        final = 1 if final else 0
+        row = self.q("SELECT close, src, final FROM price_hist WHERE key=? AND day=?", (key, day))
+        if row:
+            old = row[0]
+            if old["final"] and not final:
+                return False
+            if abs((old["close"] or 0) - close) < 1e-9 and (old["src"] or "") == (src or "") and old["final"] == final:
+                return False
+            self.x("UPDATE price_hist SET close=?, src=?, final=?, fetched_at=? WHERE key=? AND day=?",
+                   (close, src, final, iso_now(), key, day))
+        else:
+            self.many("INSERT INTO price_hist(key, day, close, src, final, fetched_at) VALUES(?,?,?,?,?,?)",
+                      [(key, day, close, src, final, iso_now())])
+        return True
+
+    def prices_for(self, key):
+        rows = self.q("SELECT day, close, src, final FROM price_hist WHERE key=? ORDER BY day", (key,))
+        return [{"date": r["day"], "close": r["close"], "src": r["src"], "final": bool(r["final"])} for r in rows]
+
+    def prices_all(self):
+        out = {}
+        for r in self.q("SELECT key, day, close, src, final FROM price_hist ORDER BY key, day"):
+            out.setdefault(r["key"], []).append(
+                {"date": r["day"], "close": r["close"], "src": r["src"], "final": bool(r["final"])})
+        return out
+
     def put_sub(self, key, source, ts, data):
         self.x("INSERT OR REPLACE INTO sub_hist(key,ts,source,data) VALUES(?,?,?,?)",
                (key, ts, source, json.dumps(data, default=str)))

@@ -1,0 +1,24 @@
+# ---------------------------------------------------------------- local runtime data
+# Never belongs in git: this is your PC's live database (tens of MB, keeps growing).
+# The cloud copy builds its own and carries it between runs automatically.
+ipo_desk.db
+ipo_desk.db-wal
+ipo_desk.db-shm
+*.db
+*.db-wal
+*.db-shm
+
+# Old file-picker export from the earlier version of the dashboard
+ipo_data.json
+
+# ---------------------------------------------------------------- build output
+# The GitHub Action regenerates this on every run; it is published, not stored.
+site/
+
+# ---------------------------------------------------------------- junk
+__pycache__/
+*.pyc
+*.pyo
+*.tmp
+.DS_Store
+Thumbs.db

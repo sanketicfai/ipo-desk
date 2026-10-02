@@ -12,6 +12,7 @@ import csv
 import gzip
 import io
 import json
+import shutil
 import os
 import sys
 import threading
@@ -26,6 +27,7 @@ from urllib.parse import parse_qs, urlparse
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+import market                            # noqa: E402
 import sources as S                      # noqa: E402
 from merge import build_doc, STATUS_LABEL  # noqa: E402
 from store import Store                  # noqa: E402
@@ -306,6 +308,7 @@ class Engine:
 
     # ================================================================ merge
     def remerge(self, key):
+        self._vrows = None
         raw = self.store.raw_for(key)
         if not raw:
             return
@@ -506,6 +509,327 @@ class Engine:
                 self.remerge(k)
         log(f"bhavcopy: {len(items)} price rows (latest {ld})")
 
+    def detail_payload(self, key, entry):
+        """One IPO, with the value row attached - same numbers the static export bakes in."""
+        out = dict(entry)
+        try:                                    # our subscription snapshots, for the day-wise tab
+            rows = self.store.sub_for(key)
+            if rows:
+                out["detail"] = dict(out.get("detail") or {},
+                                     subscription=dict((out.get("detail") or {}).get("subscription") or {},
+                                                       intraday=rows[-60:]))
+        except Exception:
+            pass
+        try:                                    # exchange daily candles, for the price chart
+            cand = self.store.ohlc_for(key, limit=220)
+            if cand:
+                out["detail"] = dict(out.get("detail") or {},
+                                     prices=dict((out.get("detail") or {}).get("prices") or {}, daily=cand))
+        except Exception:
+            pass
+        try:
+            import value
+            if not getattr(self, "_vrows", None):
+                self._vrows = self.value_payload()
+            row = next((r for r in (self._vrows.get("rows") or []) if r.get("key") == key), None)
+            if row:
+                out["value"] = row
+                out["detail"] = dict(out.get("detail") or {}, value=row)
+        except Exception:
+            pass
+        return out
+
+    def backfill_listing_days(self, max_dates=14, budget=150, tried=None):
+        """Fetch the official end-of-day file for each past listing day we do not have yet.
+
+        One request per calendar date covers every IPO that listed that day, and the file carries
+        the true open / high / low / close - which is exactly the day-1 story this desk needs.
+        """
+        docs = [e["doc"] for e in self.cache.values()]
+        have = self.store.raw_source("bse_bhav_listing") | self.store.raw_source("nse_bhav_listing")
+        tried = tried if tried is not None else {}
+        todo = {}
+        for d in docs:
+            if d.get("status") not in ("listed", "listing_today"):
+                continue
+            l = parse_date((d.get("dates") or {}).get("listing"))
+            if not l or d["key"] in have or (today_ist() - l).days < 1:
+                continue
+            todo.setdefault(l, []).append(d)
+        if not todo:
+            return 0, 0
+        dates = sorted(todo, reverse=True)[:max_dates]          # newest listings first
+        t0, filled = time.time(), 0
+        for idx, day in enumerate(dates):
+            if time.time() - t0 > budget:
+                break
+            if idx:
+                time.sleep(0.7)                                 # the exchange throttles bursts
+            bse, tries = {}, 2
+            while tries:
+                try:
+                    bse = S.bse_bhavcopy(self.http, day)
+                    self.store.mark("BSE", True)
+                    break
+                except Exception:
+                    bse, tries = {}, tries - 1
+                    time.sleep(1.5)
+            nse = {}
+            try:
+                nse = S.nse_bhavcopy(self.http, day)
+                self.store.mark("NSE", True)
+            except Exception:
+                nse = {}
+            by_isin = {str((r or {}).get("isin") or "").upper(): r for r in bse.values() if (r or {}).get("isin")}
+            items = []
+            for d in todo[day]:
+                tried[d["key"]] = tried.get(d["key"], 0) + 1
+                code = str(d.get("bse_code") or "")
+                row = bse.get(code) if code else None
+                if not row and d.get("isin"):
+                    row = by_isin.get(str(d["isin"]).upper())
+                if row:
+                    items.append((d["key"], "bse_bhav_listing", {**row, "date": day.isoformat()}))
+                    continue
+                sym = (d.get("nse_symbol") or d.get("nd_sym") or "").upper()
+                if sym and sym in nse:
+                    items.append((d["key"], "nse_bhav_listing", {**nse[sym], "date": day.isoformat()}))
+            if items:
+                self.store.put_raw_many(items)
+                for k in {k for k, _, _ in items}:
+                    self.remerge(k)
+                filled += len(items)
+            log(f"listing day {day}: {len(items)}/{len(todo[day])} matched (bse {len(bse)} rows)")
+        return filled, len(dates)
+
+    def backfill_listing_eod(self, max_items=40, budget=180, per_day=6, tried=None):
+        """Listing-day figures for the IPOs the official BSE file does not cover (NSE listings).
+
+        Pulls the daily candle history around each listing date from the exchange EOD feed and
+        stores open/high/low/close for the first traded day.
+        """
+        docs = [e["doc"] for e in self.cache.values()]
+        have = self.store.raw_source("bse_bhav_listing") | self.store.raw_source("nse_bhav_listing") \
+            | self.store.raw_source("nse_eod_listing")
+        tried = tried if tried is not None else {}
+        todo = []
+        for d in docs:
+            if d.get("status") not in ("listed", "listing_today") or d["key"] in have:
+                continue
+            l = parse_date((d.get("dates") or {}).get("listing"))
+            sym = (d.get("nse_symbol") or d.get("nd_sym") or "").upper()
+            if not l or (today_ist() - l).days < 1 or not sym or len(sym) > 12:
+                continue
+            if tried.get(d["key"], 0) >= 3:
+                continue
+            todo.append((l, sym, d))
+        if not todo:
+            return 0
+        todo.sort(reverse=True)                                  # newest listings first
+        t0, done, items = time.time(), 0, []
+        for day, sym, d in todo[:max_items]:
+            if time.time() - t0 > budget or done >= per_day:
+                break
+            rows = []
+            for suffix in (".NS", ".BO"):
+                try:
+                    rows = S.yahoo_daily(self.http, sym + suffix, day)
+                except Exception:
+                    rows = []
+                if rows:
+                    break
+                time.sleep(0.2)
+            done += 1
+            tried[d["key"]] = tried.get(d["key"], 0) + 1
+            time.sleep(0.3)
+            if not rows:
+                continue
+            want = day.isoformat()
+            row = next((r for r in rows if r["date"] == want), None)
+            if not row:                                          # first session on or after listing
+                later = [r for r in rows if r["date"] >= want]
+                row = min(later, key=lambda r: r["date"]) if later else None
+            if row:
+                items.append((d["key"], "nse_eod_listing", {**row, "symbol": sym}))
+                self.store.put_raw_many([items[-1]])
+                self.remerge(d["key"])
+        return len(items)
+
+    def day1_file(self, kind="xlsx"):
+        """Build the day-1 spreadsheet / csv on demand (cached until the data version moves)."""
+        with self.lock:
+            ver, cached = self.version, getattr(self, "_day1_files", {})
+            if cached.get("ver") == ver and cached.get(kind):
+                return cached[kind]
+            docs = [e["doc"] for e in self.cache.values()]
+        import day1
+        import tempfile
+        tmp = tempfile.mkdtemp(prefix="ipodesk-day1-")
+        day1.export(docs, tmp, generated=iso_now())
+        with open(os.path.join(tmp, "day1." + kind), "rb") as f:
+            blob = f.read()
+        shutil.rmtree(tmp, ignore_errors=True)
+        with self.lock:
+            self._day1_files = {"ver": ver, kind: blob}
+        return blob
+
+    def day1_payload(self):
+        """Listing-day rows + the day-1 study, cached against the current data version."""
+        with self.lock:
+            ver = self.version
+            if getattr(self, "_day1_ver", None) == ver and self._day1_cache:
+                return self._day1_cache
+            docs = [e["doc"] for e in self.cache.values()]
+        import day1
+        p = day1.payload(docs, iso_now())
+        with self.lock:
+            self._day1_ver, self._day1_cache = ver, p
+        return p
+
+    def subhist_payload(self):
+        """Our own subscription snapshots for the bidding IPOs - the last-day QIB signal."""
+        out = {}
+        with self.lock:
+            keys = [k for k, e in self.cache.items()
+                    if e["doc"].get("status") in ("open", "closing_today", "allotted", "listing_today")]
+        for k in keys:
+            rows = self.store.sub_for(k)
+            if rows:
+                out[k] = [{"ts": r["ts"], "qib": r.get("qib"), "total": r.get("total"),
+                           "bnii": r.get("bnii"), "snii": r.get("snii"), "rii": r.get("rii")}
+                          for r in rows[-40:]]
+        return {"generated": now_ist().isoformat(timespec="seconds"), "keys": out}
+
+    def live_payload(self, ttl=20):
+        """Live prices for the shares trading today plus the market strip - server mode only.
+
+        Everything else in this app is a snapshot that the cloud job republishes every few
+        minutes. This is the one endpoint that answers "what is the price right now": it
+        refetches the instruments and the shares listing today, and caches the answer for `ttl`
+        seconds so a page can tick every 20-30 s without hammering the source.
+        """
+        now = time.time()
+        with self.lock:
+            cached = getattr(self, "_live_cache", None)
+            if cached and now - cached[0] < ttl:
+                return cached[1]
+            docs = [dict(e["doc"]) for e in self.cache.values()
+                    if e["doc"].get("status") == "listing_today"]
+        quotes = {}
+        for d in docs:
+            sym = (d.get("nse_symbol") or d.get("nd_sym") or "").strip().upper()
+            if not sym or len(sym) > 12:
+                continue
+            for suffix in (".NS", ".BO"):
+                try:
+                    q = market._quote(self.http, sym + suffix, timeout=10)
+                except Exception:
+                    continue
+                if q and q.get("value"):
+                    quotes[d["key"]] = dict(q, symbol=sym + suffix)
+                    break
+        try:
+            mk = market.fetch(self.http)
+        except Exception:
+            mk = {"items": []}
+        out = {"generated": now_ist().isoformat(timespec="seconds"), "market": mk, "quotes": quotes,
+               "count": len(quotes), "listing_today": [d.get("key") for d in docs]}
+        with self.lock:
+            self._live_cache = (time.time(), out)
+        return out
+
+    def value_payload(self):
+        """Fair-value rows for the live server (same model the static export bakes in)."""
+        try:
+            import value
+            docs = self.list_payload()["ipos"]
+            fund = {k: value.fundamentals_from_detail((e or {}).get("detail") or {})
+                    for k, e in list(self.cache.items())}
+            return value.build(docs, fund)
+        except Exception:
+            log("value check failed", traceback.format_exc(limit=2))
+            return {"rows": [], "picks": [], "counts": {}, "stats": {}}
+
+    # ================================================================ price history
+    def refresh_ohlc(self, days=8):
+        """Keep the daily candles fresh: read the official end-of-day file for any of the last few
+        trading dates we have not stored yet, and upsert every scrip it carries. One or two requests
+        a day in steady state, because a date already stored is never fetched twice."""
+        from sources import bse_bhavcopy
+        key = "ohlc_days"
+        try:
+            done = set(json.loads(self.store.kv_get(key) or "[]"))
+        except Exception:
+            done = set()
+        by_code, by_isin = {}, {}
+        for k, e in list(self.cache.items()):
+            d = e["doc"]
+            if d.get("status") not in ("listed", "listing_today"):
+                continue
+            if d.get("bse_code"):
+                by_code[str(d["bse_code"]).strip()] = k
+            if d.get("isin"):
+                by_isin[str(d["isin"]).strip().upper()] = k
+        if not by_code:
+            return 0
+        t, added, tried = today_ist(), 0, 0
+        for i in range(days):
+            d = t - timedelta(days=i)
+            if d.weekday() >= 5 or d.isoformat() in done or tried >= 3:
+                continue
+            tried += 1
+            try:
+                rows = bse_bhavcopy(self.http, d)
+            except Exception:
+                continue
+            day, bars = d.isoformat(), {}
+            for code, row in rows.items():
+                k = by_code.get(str(code)) or by_isin.get((row.get("isin") or "").upper())
+                if not k or not row.get("close"):
+                    continue
+                bars.setdefault(k, []).append({"date": day, "open": row.get("open"), "high": row.get("high"),
+                                               "low": row.get("low"), "close": row.get("close"), "volume": row.get("volume")})
+            for k, b in bars.items():
+                added += self.store.put_ohlc(k, b, src="exchange eod")
+            done.add(day)
+        self.store.kv_set(key, sorted(done)[-40:])          # kv_set stores JSON itself
+        return added
+
+    def record_prices(self):
+        """Append one closing price per IPO per day - the fuel for the price/GMP chart.
+
+        Official bhavcopy closes are stored as final; while the market is live the same day's
+        row is refreshed with the latest quote, so an intraday price is available too.
+        Safe by construction: SQLite upsert, no network, wrapped by the caller.
+        """
+        added = 0
+        for k, e in list(self.cache.items()):
+            doc = e["doc"]
+            if doc.get("status") not in ("listed", "listing_today", "allotted", "closed"):
+                continue
+            raw = self.store.raw_for(k) or {}
+            bhav = None
+            for src in ("bse_bhav_last", "nse_bhav_last"):
+                r = raw.get(src)
+                if isinstance(r, dict) and r.get("close"):
+                    bhav = r
+                    break
+            if bhav:
+                if self.store.put_price(k, bhav.get("date") or str(today_ist()), bhav["close"],
+                                        "close", final=True):
+                    added += 1
+            # listing-day close as the first point of the series
+            lc, ld = doc.get("listing_close"), parse_date((doc.get("dates") or {}).get("listing"))
+            if lc and ld and self.store.put_price(k, ld.isoformat(), lc, "listing close", final=True):
+                added += 1
+            # intraday: today's live price (never overwrites an official close)
+            cur, cur_at = doc.get("current_price"), doc.get("current_as_of")
+            if cur and cur_at and str(cur_at)[:4].isdigit():
+                if self.store.put_price(k, str(cur_at)[:10], cur, "live", final=False):
+                    added += 1
+        log(f"price history: {added} row(s) added/updated")
+        return added
+
     # ================================================================ schedulers
     def keys_by(self, pred):
         with self.lock:
@@ -559,6 +883,13 @@ class Engine:
                         items = [(nd_map[r["sym"]], "nd_list", r) for r in rows if r["sym"] in nd_map]
                         self.store.put_raw_many(items)
                         self.remerge_all()
+                if due("prices", 600):
+                    try:
+                        self.record_prices()
+                    except Exception:
+                        pass
+                if due("market", 600 if (8 <= hour <= 23) else 1800):
+                    self.refresh_market()
                 if due("bhavcopy", 6 * 3600) or (hour == 19 and due("bhavcopy_evening", 3600)):
                     self.refresh_bhavcopy()
                 while self.priority:
@@ -714,9 +1045,24 @@ class Engine:
                                   parse_date(d["dates"].get("listing")) and
                                   (t - parse_date(d["dates"]["listing"])).days <= 30)
             self.refresh_quotes(recent[:40])
+        # 4b. market strip (9 quick requests; each failure keeps the previous value)
+        if left() > 25:
+            self.refresh_market()
         # 5. official EOD file (~1 request, cheap, keeps last close + listing price honest)
         if do_bhavcopy and left() > 30:
             self.refresh_bhavcopy()
+        # 5b. official listing-day files we are still missing (bounded: a few dates per run)
+        if do_bhavcopy and left() > 45:
+            try:
+                n, dates_done = self.backfill_listing_days(max_dates=8, budget=min(90, max(30, left() - 30)))
+                if dates_done:
+                    log(f"listing-day backfill: {n} IPO(s) from {dates_done} date(s)")
+                if left() > 60:
+                    m = self.backfill_listing_eod(max_items=30, budget=min(120, max(30, left() - 40)), per_day=6)
+                    if m:
+                        log(f"listing-day EOD: {m} IPO(s)")
+            except Exception:
+                log("listing-day backfill failed", traceback.format_exc(limit=2))
         # 6. Chittorgarh: slow; only when explicitly given a budget
         if cg_budget > 0 and left() > 30:
             cg_done, cg_t0 = 0, time.time()
@@ -729,9 +1075,52 @@ class Engine:
                         cg_done += 1
             log(f"chittorgarh: {cg_done} pages")
         self.remerge_all()
+        # 6b. daily close series for the price chart (no network, cheap upsert) and the daily candles
+        #     the price study reads - the candles only fetch dates that are not stored yet
+        try:
+            n_ohlc = self.refresh_ohlc()
+            if n_ohlc:
+                log(f"daily candles: {n_ohlc} rows added")
+        except Exception:
+            log("daily candles failed", traceback.format_exc(limit=2))
+        try:
+            self.record_prices()
+        except Exception:
+            log("price history failed", traceback.format_exc(limit=2))
         # 7. expire stale detail fetches so the next scheduled run picks them up again
         self.progress.update(phase="ready", note="")
         log(f"run_once finished in {time.time() - t0:.1f}s - {len(self.cache)} IPOs")
+
+    # ================================================================ market strip
+    def refresh_market(self, force=False):
+        """Indices / commodities / currency for the top ticker. Keeps last good values on failure.
+
+        If the feed is unreachable (some cloud ranges are blocked by the provider) we back off for
+        an hour instead of spending part of every run's budget on nine dead requests.
+        """
+        old = self.store.kv_get("market") or {}
+        if not force:
+            back = (self.store.kv_get("market_fail") or {}).get("at")
+            if back:
+                try:
+                    age = (now_ist() - datetime.fromisoformat(back)).total_seconds()
+                except Exception:
+                    age = 9999
+                if age < 3600:
+                    log(f"market: backing off ({int(age/60)} min since last failure)")
+                    return old
+        try:
+            fresh = market.fetch(self.http)
+            payload = market.merge(old, fresh)
+            ok = sum(1 for i in payload["items"] if i.get("value") is not None)
+            self.store.kv_set("market", payload)
+            self.store.kv_set("market_fail", {} if ok else {"at": now_ist().isoformat(timespec="seconds")})
+            log(f"market: {ok}/{len(payload['items'])} instruments")
+            return payload
+        except Exception:
+            log("market fetch failed", traceback.format_exc(limit=2))
+            self.store.kv_set("market_fail", {"at": now_ist().isoformat(timespec="seconds")})
+            return old
 
     # ================================================================ API payloads
     def list_payload(self):
@@ -796,6 +1185,21 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, f.read(), "text/html; charset=utf-8")
             if p == "/api/ipos":
                 return self._send(200, ENGINE.list_payload())
+            if p == "/api/compare":
+                return self._send(200, ENGINE.value_payload())
+            if p == "/api/subhist":
+                return self._send(200, ENGINE.subhist_payload())
+            if p == "/api/live":
+                return self._send(200, ENGINE.live_payload())
+            if p == "/api/market":
+                return self._send(200, ENGINE.store.kv_get("market") or {"items": []})
+            if p == "/api/day1":
+                return self._send(200, ENGINE.day1_payload())
+            if p in ("/day1.xlsx", "/day1.csv"):
+                return self._send(200, ENGINE.day1_file(p.rsplit(".", 1)[1]),
+                                  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" if p.endswith("xlsx")
+                                  else "text/csv; charset=utf-8",
+                                  {"Content-Disposition": f'attachment; filename="day1-listing-day.{p.rsplit(".", 1)[1]}"'})
             if p == "/api/version":
                 return self._send(200, {"version": ENGINE.version, "progress": ENGINE.progress,
                                         "sources": ENGINE.sources_payload(), "market_open": is_market_hours(),
@@ -805,7 +1209,7 @@ class Handler(BaseHTTPRequestHandler):
                 e = ENGINE.cache.get(key)
                 if not e:
                     return self._send(404, {"error": "not found"})
-                return self._send(200, e)
+                return self._send(200, ENGINE.detail_payload(key, e))
             if p == "/api/export.json":
                 with ENGINE.lock:
                     data = {"generated": iso_now(), "ipos": list(ENGINE.cache.values())}
@@ -872,6 +1276,8 @@ def main():
                     help="folder to write the static dashboard into (with --once)")
     ap.add_argument("--budget", type=int, default=240, help="seconds allowed for --once")
     ap.add_argument("--cg-budget", type=int, default=0, help="seconds for Chittorgarh in --once (0 = skip)")
+    ap.add_argument("--backfill-listing", type=int, default=0, metavar="N",
+                    help="fetch official day-1 files for N listing dates, then exit")
     ap.add_argument("--export-only", action="store_true",
                     help="skip fetching, just re-export the static site from the existing database")
     args = ap.parse_args()
@@ -880,6 +1286,29 @@ def main():
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
+
+    if args.backfill_listing:
+        ENGINE = Engine(args.db, args.lookback, enable_cg=False)
+        ENGINE.sync_catalog(full=True)
+        ENGINE.remerge_all()
+        total, stale = 0, 0
+        seen = {}                                          # how often each IPO has already refused
+        for round_no in range(1, 60):                      # keep going until nothing is missing
+            n, dates_done = ENGINE.backfill_listing_days(max_dates=args.backfill_listing, budget=600, tried=seen)
+            m = ENGINE.backfill_listing_eod(max_items=args.backfill_listing * 3, budget=600,
+                                            per_day=args.backfill_listing, tried=seen)
+            total += n + m
+            log(f"listing-day backfill round {round_no}: {n} official + {m} EOD ({dates_done} dates), {total} total")
+            if not dates_done and not m:
+                break
+            stale = stale + 1 if (n + m) == 0 else 0       # transient blocks: stop after 3 dead rounds
+            if stale >= 3:
+                log("giving up - the archive keeps refusing; try again later")
+                break
+        if total:
+            import export_static
+            ENGINE.remerge_all()
+        return
 
     if args.once or args.export_only:
         ENGINE = Engine(args.db, args.lookback, enable_cg=not args.no_chittorgarh)

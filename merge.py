@@ -7,11 +7,18 @@ Priority rules
   * listing price                   : NSE/BSE bhavcopy (official) > InvestorGain > Narada
   * current price                   : NSE live > BSE live > Narada > BSE bhavcopy > InvestorGain LTP
 """
+import json
+import os
 import re
 from datetime import datetime
 
 from util import (IST, clean_html, dstr, html_table_rows, num, parse_date, pct, rnd, strip_tags,
                   today_ist)
+
+def isNum2(v):
+    """True for a real number (the dashboard-side name, kept so the two files read alike)."""
+    return isinstance(v, (int, float)) and v == v
+
 
 STATUS_LABEL = {
     "upcoming": "Upcoming", "open": "Open", "closing_today": "Closing Today", "closed": "Closed",
@@ -195,6 +202,27 @@ def compute_status(dates, hints, listed_evidence, withdrawn, today):
 
 
 # ----------------------------------------------------------------------------- main merge
+_CG_CACHE = None
+
+
+def cg_cache(key):
+    """Category-wise bidding rows kept in the repo (cg_sub_cache.json).
+
+    InvestorGain drops the category split for an issue a few weeks after listing, and the online
+    runner never fetches Chittorgarh (its pages are slow), so the one-off backfill is stored next to
+    the code and read as the last resort. Anything fetched live always wins over it.
+    """
+    global _CG_CACHE
+    if _CG_CACHE is None:
+        try:
+            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "cg_sub_cache.json"),
+                      encoding="utf-8") as f:
+                _CG_CACHE = json.load(f)
+        except Exception:
+            _CG_CACHE = {}
+    return _CG_CACHE.get(key) or {}
+
+
 def build_doc(key, raw, gmp_rows, sub_snaps, today=None):
     today = today or today_ist()
     cat = raw.get("ig_cat") or {}
@@ -209,11 +237,14 @@ def build_doc(key, raw, gmp_rows, sub_snaps, today=None):
     nse = raw.get("nse_list") or {}
     nsec = raw.get("nse_cat") or {}
     cg = raw.get("cg") or {}
+    if not (cg.get("bids") or cg.get("boa")):        # a live record beats the archive; an empty one does not
+        cg = cg_cache(key) or cg
     q_nse = raw.get("nse_quote") or {}
     q_bse = raw.get("bse_quote") or {}
     bhav_l = raw.get("bse_bhav_listing") or {}
     bhav_last = raw.get("bse_bhav_last") or {}
     nbhav_l = raw.get("nse_bhav_listing") or {}
+    yq_l = raw.get("nse_eod_listing") or {}
     V = Verifier()
 
     # ------------------------------------------------------------ identity
@@ -361,6 +392,15 @@ def build_doc(key, raw, gmp_rows, sub_snaps, today=None):
                 m[k] = r["times"]
         if m:
             sub_cands.append(("NSE", _ts(nsec.get("as_of")) or _ts(nsec.get("_fetched")), m))
+    # Chittorgarh's bidding record carries the same category multiples for issues whose tracker
+    # table has gone stale, so the header numbers and the "as of" line keep working.
+    cg_bid0 = (cg.get("bids") or [None])[0]
+    if cg_bid0:
+        # categories only: Chittorgarh's "total" is its own ex-anchor figure and it must never
+        # overwrite the total the dashboard already shows
+        m = {k: v for k, v in (cg_bid0.get("times") or {}).items() if v and k != "total"}
+        if m:
+            sub_cands.append(("Chittorgarh", _ts(cg_bid0.get("as_of")), m))
     status_hint_open = bool(dates.get("open") and _d(dates["open"]) and _d(dates["open"]) <= today)
     chosen_sub = None
     if sub_cands:
@@ -407,6 +447,69 @@ def build_doc(key, raw, gmp_rows, sub_snaps, today=None):
                 continue
             ig_rows.append({"cat": k, "label": lab[k], "offered": off, "bid": bid,
                             "times": (last_bid.get("times") or {}).get(k), "amount_cr": (last_bid.get("amount_cr") or {}).get(k)})
+    # A few weeks after listing InvestorGain cuts its bidding table down to a single total line.
+    # The category split is still on the exchange's own bidding record that Chittorgarh keeps, so the
+    # table is rebuilt from there - same shapes, same labels, nothing invented.
+    real_cats = [r for r in ig_rows if r["cat"] in ("qib", "nii", "bnii", "snii", "rii")]
+    cg_bid = (cg.get("bids") or [None])[0]
+    shares_src = "InvestorGain" if len(real_cats) >= 2 else None
+    if shares_src is None and cg_bid:
+        lab2 = {"qib": "QIB", "nii": "NII", "bnii": "bNII (> \u20b910L)", "snii": "sNII (\u20b92-10L)",
+                "rii": "RII", "emp": "Employee", "other": "Others"}
+        off_all = cg_bid.get("offered") or {}
+        bid_all = cg_bid.get("bid") or {}
+        tms_all = cg_bid.get("times") or {}
+        px = first(issue_price, price_high)
+        built = []
+        for k in ("qib", "nii", "bnii", "snii", "rii", "emp", "other"):
+            off, bid = off_all.get(k), bid_all.get(k)
+            if not off and not bid:                              # Chittorgarh prints 0 for unused categories
+                continue
+            t = tms_all.get(k)
+            if t is None and off and bid:
+                t = rnd(bid / off, 2)
+            built.append({"cat": k, "label": lab2[k], "offered": off, "bid": bid, "times": t,
+                          "amount_cr": rnd(bid * px / 1e7, 2) if (bid and px) else None})
+        # bNII + sNII sit under NII, so the total must add the parents only (never the children twice)
+        top = [r for r in built if r["cat"] in ("qib", "nii", "rii", "emp", "other")]
+        o_sum = sum(r["offered"] or 0 for r in top)
+        b_sum = sum(r["bid"] or 0 for r in top)
+        if o_sum or b_sum:
+            built.append({"cat": "total", "label": "Total", "offered": o_sum or None, "bid": b_sum or None,
+                          "times": rnd(b_sum / o_sum, 2) if o_sum else None,
+                          "amount_cr": rnd(b_sum * px / 1e7, 2) if (b_sum and px) else None})
+        if len([r for r in built if r["cat"] in ("qib", "nii", "bnii", "snii", "rii")]) >= 2:
+            ig_rows = built
+            shares_src = "Chittorgarh"
+    if shares_src is None and nd_sh:
+        # Last resort: the trackers only keep the money now (₹ Cr reserved and bid per category).
+        # Divide by the issue price to get back the share counts - the multiples are unaffected,
+        # because both sides convert at the same price.
+        px = first(issue_price, price_high)
+        lab3 = {"qib": "QIB", "nii": "NII", "bnii": "bNII (> \u20b910L)", "snii": "sNII (\u20b92-10L)",
+                "rii": "RII", "emp": "Employee", "shareholder": "Shareholder", "other": "Others"}
+        built = []
+        for r in nd_sh:
+            if r["cat"] not in lab3:
+                continue                        # QIB internals (FII / DFI / MF) are not rows of this table
+            a_cr, b_cr = r.get("a"), r.get("b")
+            off = rnd(a_cr * 1e7 / px, 0) if (a_cr and px) else None
+            bid = rnd(b_cr * 1e7 / px, 0) if (b_cr and px) else None
+            if not off and not bid:
+                continue
+            built.append({"cat": r["cat"], "label": lab3[r["cat"]], "offered": off, "bid": bid,
+                          "times": r.get("times"), "amount_cr": rnd(b_cr, 2) if b_cr else None})
+        top = [r for r in built if r["cat"] in ("qib", "nii", "rii", "emp", "shareholder", "other")]
+        o_sum = sum(r["offered"] or 0 for r in top)
+        b_sum = sum(r["bid"] or 0 for r in top)
+        if o_sum or b_sum:
+            tot_row = next((r for r in nd_sh if r["cat"] == "total"), {})
+            built.append({"cat": "total", "label": "Total", "offered": o_sum or None, "bid": b_sum or None,
+                          "times": tot_row.get("times") or (rnd(b_sum / o_sum, 2) if o_sum else None),
+                          "amount_cr": rnd(tot_row.get("b"), 2) if tot_row.get("b") else None})
+        if len([r for r in built if r["cat"] in ("qib", "nii", "bnii", "snii", "rii")]) >= 2:
+            ig_rows = built
+            shares_src = "Narada"
 
     # application-wise table
     apps_rows = []
@@ -427,6 +530,7 @@ def build_doc(key, raw, gmp_rows, sub_snaps, today=None):
             tot["received_individual"] = rec or None
             tot["times"] = rnd(rec / res, 2) if res else None
     boa = cg.get("boa") or []
+
     total_apps = first(next((r.get("received") for r in apps_rows if r["cat"] == "total"), None),
                        cg.get("total_applications"))
     V.add("total_apps", "Total applications", [("Narada", next((r.get("received") for r in apps_rows if r["cat"] == "total"), None)),
@@ -435,16 +539,41 @@ def build_doc(key, raw, gmp_rows, sub_snaps, today=None):
 
     # ------------------------------------------------------------ listing & current price
     on_nse = "NSE" in str(exchange or "").upper() or bool(nse_sym and not str(nse_sym).isdigit() and "BSE SME" not in str(exchange or ""))
-    bse_ref = not on_nse          # BSE-only issues: BSE bhavcopy is the official listing record
-    listing_price = first(nbhav_l.get("open"), bhav_l.get("open") if bse_ref else None, num(ig.get("listing_price")),
-                          perf.get("listing_price"), ndd.get("listing_price"), ndl.get("listing_price"), bhav_l.get("open"))
+    # A matched BSE row is the official record for that exchange whether or not the share is also
+    # on NSE; the NSE file still wins when we have it (it is the primary exchange for most issues).
+    bse_ref = bool(bhav_l.get("date"))
+    # Official file > tracker-reported traded price > the EOD series. The EOD series is restated
+    # for later splits and bonuses, so it can sit far away from the price actually paid on listing
+    # day - it is used only when nothing else has the number, and is labelled as adjusted.
+    listing_price = first(nbhav_l.get("open"), bhav_l.get("open") if bse_ref else None,
+                          num(ig.get("listing_price")),
+                          perf.get("listing_price"), ndd.get("listing_price"), ndl.get("listing_price"),
+                          yq_l.get("open"), bhav_l.get("open"))
     V.add("listing_price", "Listing price (₹)", [("NSE bhavcopy", nbhav_l.get("open")),
                                                  ("BSE bhavcopy", bhav_l.get("open") if bse_ref else None),
                                                  ("InvestorGain", num(ig.get("listing_price"))), ("IG tracker", perf.get("listing_price")),
                                                  ("Narada", first(ndd.get("listing_price"), ndl.get("listing_price")))],
           tol_rel=0.01, chosen=listing_price)
-    listing_close = first(nbhav_l.get("close"), bhav_l.get("close") if bse_ref else None, perf.get("listing_day_close"),
-                          cg.get("listing_day_close"), bhav_l.get("close"))
+    listing_high = first(nbhav_l.get("high"), bhav_l.get("high") if bse_ref else None, yq_l.get("high"), None)
+    listing_low = first(nbhav_l.get("low"), bhav_l.get("low") if bse_ref else None, yq_l.get("low"), None)
+    if not (nbhav_l.get("date") or (bse_ref and bhav_l.get("date"))):
+        listing_high = listing_low = None      # an adjusted series cannot give a true intraday band
+    listing_volume = first(nbhav_l.get("volume"), bhav_l.get("volume") if bse_ref else None,
+                           yq_l.get("volume"), None)
+    listing_official = bool(first(bhav_l.get("date") if bse_ref else None, nbhav_l.get("date"), yq_l.get("date")))
+    if nbhav_l.get("date") or (bse_ref and bhav_l.get("date")):
+        listing_quality = "bhavcopy"                      # straight from the exchange's own file
+    elif listing_price is not None and listing_price in (
+            num(ig.get("listing_price")), perf.get("listing_price"),
+            ndd.get("listing_price"), ndl.get("listing_price"), bhav_l.get("open")):
+        listing_quality = "indicative"                    # a published traded price, not a file
+    elif yq_l.get("date"):
+        listing_quality = "eod"                           # restated series: direction only
+    else:
+        listing_quality = "indicative"
+    listing_close = first(nbhav_l.get("close"), bhav_l.get("close") if bse_ref else None,
+                          perf.get("listing_day_close"), cg.get("listing_day_close"),
+                          yq_l.get("close"), bhav_l.get("close"))
     V.add("listing_close", "Listing-day close (₹)", [("NSE bhavcopy", nbhav_l.get("close")),
                                                      ("BSE bhavcopy", bhav_l.get("close") if bse_ref else None),
                                                      ("IG tracker", perf.get("listing_day_close")),
@@ -476,6 +605,13 @@ def build_doc(key, raw, gmp_rows, sub_snaps, today=None):
     hints = [IG_STATUS.get(live.get("ig_status")), ND_SECTION.get(ndl.get("nd_section"))]
     status = compute_status(dates, hints, bool(listing_price), withdrawn, today)
 
+    # A share trading on its listing day: L keeps showing the live price until the 3:30 close,
+    # then the official day-1 open takes over on the next refresh (round 4).
+    listing_live = bool(status == "listing_today" and current_price
+                        and not (nbhav_l.get("close") or yq_l.get("close") or (bse_ref and bhav_l.get("close"))))
+    if listing_live:
+        listing_price = current_price
+
     # ------------------------------------------------------------ investment by category
     app_sizes = ndd.get("app_sizes") or []
     if not app_sizes:
@@ -496,6 +632,48 @@ def build_doc(key, raw, gmp_rows, sub_snaps, today=None):
             reservation.append({"label": lab, "shares": v,
                                 "pct": rnd(v / num(ig.get("shares_offered_total")) * 100, 1) if num(ig.get("shares_offered_total")) and k != "shares_offered_total" else None})
 
+    # ------------------------------------------------------------ Q/B/S/R (share-wise + application-wise)
+    # Application-wise multiple = applications received / application slots available in that category
+    # (one slot = one minimum application). QIB bids by shares only, so it has no application-wise
+    # number - it is reported as 0 by design, not as a missing value.
+    apps_x, slots_note = {}, {}
+    min_sh = {}
+    for r in (app_sizes or []):
+        q = (r.get("quota") or "").upper()
+        mn = ((r.get("min") or {}).get("shares"))
+        if mn:
+            min_sh[q] = mn
+    offered = (last_bid or {}).get("offered") or {}
+    qmap = {"rii": ("RII", "rii"), "snii": ("sNII", "snii"), "bnii": ("bNII", "bnii"),
+            "emp": ("Employee", "emp"), "shareholder": ("Shareholder", "shareholder")}
+    for ckey, (quota, akey) in qmap.items():
+        src_row = next((r for r in apps_rows if r["cat"] == akey), None) or {}
+        recv = src_row.get("received")
+        off = num(offered.get(akey))
+        lot_sh = min_sh.get(quota) or lot
+        # the exchanges' own application-wise multiple wins; otherwise compute applications / slots
+        if src_row.get("times") is not None:
+            apps_x[akey] = src_row["times"]
+        elif recv and off and lot_sh:
+            slots = off / lot_sh
+            if slots > 0:
+                apps_x[akey] = rnd(recv / slots, 2)
+                slots_note[akey] = slots
+    # No application counts from the trackers? The allotment record carries applications and
+    # allottees per category, and applications / allottees is the same multiple by another route.
+    for r in (cg.get("boa") or []):
+        catl = (r.get("category") or "").lower()          # keep `cat` (the ig_cat row) untouched
+        # the parent NII line is deliberately left alone: its application multiple is a blend, not a fact
+        akey = ("rii" if "retail" in catl else "bnii" if "above" in catl else "snii" if "upto" in catl or "up to" in catl
+                else "emp" if "employee" in catl else None)
+        if not akey or isNum2(apps_x.get(akey)):
+            continue
+        recv, allot = num(r.get("applications")), num(r.get("allottees"))
+        if recv and allot:
+            apps_x[akey] = rnd(recv / allot, 2)
+    apps_x["qib"] = 0.0            # QIB has no application-wise bidding (shown as 0 on purpose)
+    qbsr_share = {k: sub.get(k) for k in ("qib", "bnii", "snii", "rii")}
+    qbsr_apps = {k: apps_x.get(k) for k in ("qib", "bnii", "snii", "rii")}
     # ------------------------------------------------------------ company info
     reg = igd.get("registrar") or {}
     reg_txt = strip_tags(reg.get("registrar_basic_info") or "")
@@ -579,9 +757,12 @@ def build_doc(key, raw, gmp_rows, sub_snaps, today=None):
         "gmp_ig": ig_gmp, "gmp_nd": nd_gmp, "final_gmp": perf.get("final_gmp"),
         "gmp_spark": spark,
         "sub": sub, "sub_total": sub_total, "sub_src": chosen_sub[0] if chosen_sub else None,
+        "subx": {"share": qbsr_share, "apps": qbsr_apps},
         "sub_as_of": (chosen_sub[1].isoformat() if chosen_sub and chosen_sub[1] else None),
         "listing_price": listing_price, "listing_gain": listing_gain,
         "listing_close": listing_close, "listing_close_gain": listing_close_gain,
+        "listing_high": listing_high, "listing_low": listing_low, "listing_volume": listing_volume,
+        "listing_official": listing_official, "listing_quality": listing_quality, "listing_live": listing_live,
         "current_price": current_price, "current_gain": current_gain, "day_change": day_chg,
         "current_src": current[0] if (current and listed) else None,
         "current_as_of": current[2] if (current and listed) else None,
@@ -593,8 +774,12 @@ def build_doc(key, raw, gmp_rows, sub_snaps, today=None):
         "gmp_history": hist,
         "subscription": {
             "chosen_src": doc["sub_src"], "as_of": doc["sub_as_of"], "times": sub,
-            "shares_nd": shares_rows, "shares_ig": ig_rows, "ig_as_of": last_bid.get("as_of") if last_bid else None,
-            "apps": apps_rows, "total_applications": total_apps, "boa": boa, "boa_src": "Chittorgarh" if boa else None,
+            "shares_nd": shares_rows, "shares_ig": ig_rows, "shares_src": shares_src,
+            "shares_derived": shares_src == "Narada",
+            "ig_as_of": (last_bid.get("as_of") if last_bid else None) if shares_src == "InvestorGain"
+                        else (cg_bid.get("as_of") if cg_bid else None),
+            "apps": apps_rows, "apps_x": apps_x, "apps_slots": slots_note,
+            "total_applications": total_apps, "boa": boa, "boa_src": "Chittorgarh" if boa else None,
             "daywise": daywise, "summary": igs.get("summary") or [], "with_anchor": igs.get("with_anchor") or [],
             "candidates": [{"src": c[0], "as_of": c[1].isoformat() if c[1] else None, "times": c[2]} for c in sub_cands],
             "snapshots": sub_snaps[-400:] if sub_snaps else [],

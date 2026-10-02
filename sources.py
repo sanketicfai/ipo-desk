@@ -368,10 +368,31 @@ def cg_detail(http, slug, cg_id):
             "times": num(x.get("times_subscribed")), "allottees": num(x.get("no_of_allottees")),
             "shares_allotted": num(x.get("no_of_shares_allotted")),
         })
+    # Chittorgarh keeps the category-wise bidding table for old issues long after InvestorGain has
+    # dropped it down to a single total line, so the same page is our fallback source for the
+    # share-wise subscription table.
+    cats = (("qib", "qib_offered", "qib_shares_bid_for"), ("nii", "nii_offered", "nii_shares_bid_for"),
+            ("bnii", "nii_offered_big", "nii_shares_bid_for_big"), ("snii", "nii_offered_small", "nii_shares_bid_for_small"),
+            ("rii", "rii_offered", "rii_shares_bid_for"), ("emp", "emp_offered", "emp_shares_bid_for"),
+            ("other", "other_offered", "other_shares_bid_for"))
+    bid_row = None
+    if last:
+        bid_row = {"as_of": last.get("bid_date"),
+                   "offered": {k: num(last.get(off_k)) for k, off_k, _ in cats},
+                   "bid": {k: num(last.get(bid_k)) for k, _, bid_k in cats},
+                   "times": {"qib": num(last.get("qib")), "nii": num(last.get("nii")),
+                             "bnii": num(last.get("nii_big")), "snii": num(last.get("nii_small")),
+                             "rii": num(last.get("rii")), "emp": num(last.get("emp")), "other": num(last.get("other"))}}
+        bid_row["offered"]["total"] = num(last.get("total_offered"))
+        bid_row["bid"]["total"] = num(last.get("total_shares_bid_for"))
+        bid_row["times"]["total"] = num(last.get("total"))
+        for k in ("offered", "bid"):
+            bid_row[k] = {a: b for a, b in bid_row[k].items() if b is not None}
     return {
         "url": r.url,
         "total_applications": num(last.get("total_application")),
         "bid_as_of": last.get("bid_date"),
+        "bids": [bid_row] if bid_row else [],
         "times": {"qib": num(last.get("qib")), "nii": num(last.get("nii")), "bnii": num(last.get("nii_big")),
                   "snii": num(last.get("nii_small")), "rii": num(last.get("rii"))} if last else {},
         "boa": boa,
@@ -743,4 +764,39 @@ def nse_bhavcopy(http, d):
             out[sym] = {"series": x.get("SctySrs"), "isin": x.get("ISIN"), "open": num(x.get("OpnPric")),
                         "high": num(x.get("HghPric")), "low": num(x.get("LwPric")), "close": num(x.get("ClsPric")),
                         "prev_close": num(x.get("PrvsClsgPric"))}
+    return out
+
+
+def yahoo_daily(http, symbol, day, span=8):
+    """Daily candles around one date from Yahoo (exchange EOD data).
+
+    Used only for listing-day figures on exchanges whose archive we cannot reach: pass the
+    exchange symbol (e.g. 'SRTL.NS'), get back [{'date','open','high','low','close','volume'}].
+    """
+    import datetime as _dt
+    import json as _json
+    p1 = int(_dt.datetime.combine(day - _dt.timedelta(days=span), _dt.time()).timestamp())
+    p2 = int(_dt.datetime.combine(day + _dt.timedelta(days=4), _dt.time()).timestamp())
+    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+           f"?period1={p1}&period2={p2}&interval=1d")
+    r = http.get(url, timeout=25, retries=1, headers={"User-Agent": "Mozilla/5.0 (IPO Desk)"})
+    j = _json.loads(r.text)
+    res = (j.get("chart") or {}).get("result") or []
+    if not res:
+        raise ValueError("yahoo: no chart data")
+    res = res[0]
+    ts = res.get("timestamp") or []
+    q = ((res.get("indicators") or {}).get("quote") or [{}])[0]
+    vol = q.get("volume") or []
+    out = []
+    for i, t in enumerate(ts):
+        try:
+            d = _dt.datetime.fromtimestamp(t, _dt.timezone.utc).date().isoformat()
+        except Exception:
+            continue
+        row = {"date": d, "open": num(q["open"][i]), "high": num(q["high"][i]),
+               "low": num(q["low"][i]), "close": num(q["close"][i]),
+               "volume": num(vol[i]) if i < len(vol) else None}
+        if row["close"] is not None:
+            out.append(row)
     return out
