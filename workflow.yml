@@ -6,7 +6,7 @@ name: IPO Desk - refresh data & publish dashboard
 
 on:
   schedule:
-    - cron: "4,14,24,34,44,54 * * * *"   # every 10 min, offset by 4 (dodges top-of-interval congestion)
+    - cron: "*/5 * * * *"         # every 5 min as a backstop
   workflow_dispatch:               # "Run workflow" button in the Actions tab
   push:
     branches: [main]
@@ -27,22 +27,20 @@ on:
       - ".github/workflows/ipo-desk.yml"
 
 permissions:
-  contents: write                  # needed by the keep-alive heartbeat below
+  contents: read
   pages: write
   id-token: write
 
-# never let two refreshes overlap
+# If a run is ever delayed or stuck, let the newest run take over immediately.
+# Never let a zombie run hold the queue hostage.
 concurrency:
   group: ipo-desk-refresh
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -80,36 +78,18 @@ jobs:
           path: ipo_desk.db*
           key: ipodesk-db-${{ github.run_id }}
 
-      # ---------------------------------------------------------------- WHY THIS EXISTS
-      # GitHub treats scheduled workflows as best-effort AND deprioritises repositories with
-      # no recent activity: a quiet repo can see a "*/10" schedule fire only every few hours,
-      # and after 60 days with no activity the schedule is disabled silently.
-      # One tiny commit (a timestamp, ~30 bytes) every 6 hours keeps the repository "active",
-      # so the refresh schedule keeps firing at full speed and can never be auto-disabled.
-      # This commit touches no code. The paths filter above means it does not re-trigger itself.
-      - name: Keep-alive heartbeat
-        run: |
-          set -e
-          mkdir -p .state
-          NOW=$(date -u +%s)
-          LAST=$(cat .state/last-run 2>/dev/null || echo 0)
-          AGE=$(( (NOW - LAST) / 3600 ))
-          if [ "$AGE" -lt 6 ]; then
-            echo "heartbeat is $AGE h old - nothing to do"
-            exit 0
-          fi
-          date -u +"%Y-%m-%d %H:%M UTC" > .state/last-run
-          git config user.name  "ipo-desk-bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add .state/last-run
-          git commit -m "heartbeat: keep the refresh schedule running"
-          git push
-
       - name: Upload dashboard
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
+  deploy:
+    runs-on: ubuntu-latest
+    needs: refresh
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
       - name: Publish to GitHub Pages
         id: deploy
         uses: actions/deploy-pages@v4
