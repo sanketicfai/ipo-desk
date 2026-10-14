@@ -220,7 +220,7 @@ def write_site(engine, out_dir, csv_text=None, dashboard_src=None):
             continue
         import merge
         out_doc = dict(entry["doc"])
-        merge.refresh_doc_status(out_doc, today_ist())
+        merge.refresh_doc_status(out_doc)
         out = {"doc": out_doc, "detail": dict(entry["detail"])}
         out["doc"]["keyfile"] = keyfile[k]
         out["doc"]["logo"] = d.get("logo") or ""     # already copied into site/logo/
