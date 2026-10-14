@@ -29,7 +29,8 @@ sys.path.insert(0, HERE)
 
 import market                            # noqa: E402
 import sources as S                      # noqa: E402
-from merge import build_doc, STATUS_LABEL  # noqa: E402
+import merge
+from merge import build_doc, STATUS_LABEL, refresh_doc_status  # noqa: E402
 from store import Store                  # noqa: E402
 from util import (IST, compact, iso_now, is_market_hours, name_score, now_ist, parse_date,  # noqa: E402
                   today_ist)
@@ -60,9 +61,13 @@ class Engine:
         self.fail_until = {}
         self.attempted = {}
         self.catalog_ready = threading.Event()
+        today = today_ist()
         for row in self.store.q("SELECT key, data FROM ipo"):
             try:
-                self.cache[row["key"]] = json.loads(row["data"])
+                entry = json.loads(row["data"])
+                if isinstance(entry.get("doc"), dict):
+                    merge.refresh_doc_status(entry["doc"], today)
+                self.cache[row["key"]] = entry
             except Exception:
                 pass
         if self.cache:
@@ -1126,8 +1131,14 @@ class Engine:
 
     # ================================================================ API payloads
     def list_payload(self):
+        today = today_ist()
         with self.lock:
-            docs = [e["doc"] for e in self.cache.values()]
+            docs = []
+            for e in self.cache.values():
+                d = e.get("doc")
+                if d:
+                    merge.refresh_doc_status(d, today)
+                    docs.append(d)
             ver = self.version
         counts = {}
         for d in docs:

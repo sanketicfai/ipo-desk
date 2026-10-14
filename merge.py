@@ -201,6 +201,24 @@ def compute_status(dates, hints, listed_evidence, withdrawn, today):
     return "upcoming"
 
 
+def refresh_doc_status(doc, today=None):
+    """Recompute doc['status'], status_label, and status_order strictly against today's date."""
+    if not isinstance(doc, dict):
+        return doc
+    dates = doc.get("dates") or {}
+    st = compute_status(
+        dates=dates,
+        hints=[],
+        listed_evidence=bool(doc.get("listing_price")),
+        withdrawn=(doc.get("status") == "withdrawn"),
+        today=today or today_ist()
+    )
+    doc["status"] = st
+    doc["status_label"] = STATUS_LABEL.get(st, st.title())
+    doc["status_order"] = STATUS_ORDER.get(st, 6)
+    return doc
+
+
 # ----------------------------------------------------------------------------- main merge
 _CG_CACHE = None
 

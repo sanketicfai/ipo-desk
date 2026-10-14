@@ -484,7 +484,67 @@ function avatar(d, big){
   const img = d.logo ? `<img src="${esc(d.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : '';
   return `<div class="av" style="background:${bg}"><span>${esc(init)}</span>${img}</div>`;
 }
-const statusPill = d => `<span class="pill st-${d.status}">${esc(d.status_label)}</span>`;
+const STATUS_LABEL_MAP = {
+  upcoming: 'Upcoming', open: 'Open', closing_today: 'Closing Today', closed: 'Closed',
+  allotment_today: 'Allotment Today', allotted: 'Allotted', listing_today: 'Listing Today',
+  listed: 'Listed', withdrawn: 'Withdrawn'
+};
+const STATUS_ORDER_MAP = {
+  closing_today: 0, open: 1, listing_today: 2, allotment_today: 3, allotted: 4,
+  closed: 5, upcoming: 6, listed: 7, withdrawn: 8
+};
+
+function todayIST(){
+  try {
+    return new Intl.DateTimeFormat('en-CA', {timeZone: 'Asia/Kolkata'}).format(new Date());
+  } catch (e) {
+    return (S.data?.today || new Date().toISOString().slice(0, 10));
+  }
+}
+
+/* Recompute status dynamically from the dates against the real-time calendar date in India (IST).
+   - An issue whose open date has arrived (today >= open && today <= close) MUST be 'open' / 'closing_today'
+     and appear in the Apply tab from that exact day.
+   - An issue whose open date is in the future (today < open) is 'upcoming'.
+   - An issue whose close date has passed (today > close) is closed/allotted/listed. */
+function computeLiveStatus(d, today){
+  if (!d) return 'upcoming';
+  if (d.status === 'withdrawn') return 'withdrawn';
+  const dt = d.dates || {};
+  const o = dt.open, c = dt.close, a = dt.allotment, l = dt.listing;
+  today = today || todayIST();
+
+  if (d.listing_price || (l && today > l)) return 'listed';
+  if (l && today === l) return 'listing_today';
+  if (a && today === a) return 'allotment_today';
+  if (a && today > a) return 'allotted';
+  if (c && today > c) return 'closed';
+  if (c && today === c && (!o || o <= today)) return 'closing_today';
+  if (o && o <= today && (!c || today <= c)) {
+    return (c && today === c) ? 'closing_today' : 'open';
+  }
+  if (o && today < o) return 'upcoming';
+  return d.status || 'upcoming';
+}
+
+function updateLiveStatuses(ipos){
+  const today = todayIST();
+  if (!Array.isArray(ipos)) return;
+  for (const d of ipos){
+    const st = computeLiveStatus(d, today);
+    if (st && st !== d.status){
+      d.status = st;
+      d.status_label = STATUS_LABEL_MAP[st] || st;
+      d.status_order = STATUS_ORDER_MAP[st] ?? 6;
+    }
+  }
+}
+
+const statusPill = d => {
+  const st = computeLiveStatus(d);
+  const lbl = STATUS_LABEL_MAP[st] || d.status_label || st;
+  return `<span class="pill st-${st}">${esc(lbl)}</span>`;
+};
 const boardBadge = d => `<span class="bd ${d.board==='SME'?'sme':''}">${d.board==='SME'?'SME':'MAIN'}</span>`;
 function fire(n){ if(!isNum(n) || n <= 0) return '<span class="mut">–</span>'; return `<span class="fire" title="${n}/5">${'🔥'.repeat(Math.min(5, Math.round(n)))}</span>`; }
 function subCls(v){ return !isNum(v) ? '' : v >= 10 ? 'hot' : v < 1 ? 'cold' : ''; }
@@ -498,27 +558,31 @@ function spark(vals, w=76, h=24){
   return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><line x1="2" x2="${w-2}" y1="${zy}" y2="${zy}" stroke="var(--line)" stroke-dasharray="2 2"/><polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
 }
 /* ============================================================ tabs / columns */
+/* The Apply tab and Open tab show every issue open right now (or closing today).
+   The Upcoming tab strictly shows issues whose open date is in the future. */
+function APPLYABLE(d){ const st = computeLiveStatus(d); return st === 'open' || st === 'closing_today'; }
+function IS_UPCOMING(d){ return computeLiveStatus(d) === 'upcoming'; }
+
 const TABS = [
-  ['all','All', d => d.status !== 'withdrawn'],
-  ['live','Open', d => d.status === 'open' || d.status === 'closing_today'],
-  ['closing_today','Closing', d => d.status === 'closing_today'],
-  ['upcoming','Upcoming', d => d.status === 'upcoming'],
-  ['closed','Closed', d => d.status === 'closed'],
-  ['allotment_today','Allotment', d => d.status === 'allotment_today'],
-  ['allotted','Allotted', d => d.status === 'allotted'],
-  ['listing_today','Listing', d => d.status === 'listing_today'],
-  ['listed','Listed', d => d.status === 'listed'],
+  ['all','All', d => computeLiveStatus(d) !== 'withdrawn'],
+  ['live','Open', d => APPLYABLE(d)],
+  ['closing_today','Closing', d => computeLiveStatus(d) === 'closing_today'],
+  ['upcoming','Upcoming', d => IS_UPCOMING(d)],
+  ['closed','Closed', d => computeLiveStatus(d) === 'closed'],
+  ['allotment_today','Allotment', d => computeLiveStatus(d) === 'allotment_today'],
+  ['allotted','Allotted', d => computeLiveStatus(d) === 'allotted'],
+  ['listing_today','Listing', d => computeLiveStatus(d) === 'listing_today'],
+  ['listed','Listed', d => computeLiveStatus(d) === 'listed'],
   ['apply','Apply', d => APPLYABLE(d)],       // the ones you can still put money into, with the amounts
-  ['post','Post-listing', d => d.status === 'listed'],   // already trading, below what their record is worth
+  ['post','Post-listing', d => computeLiveStatus(d) === 'listed'],   // already trading, below what their record is worth
   ['withdrawn','Withdrawn', d => d.status === 'withdrawn'],
 ];
-/* the Apply tab: bidding open right now (or closing today) - you can still put money in */
-function APPLYABLE(d){ return d.status === 'open' || d.status === 'closing_today'; }
 const D = (d, k) => (d.dates||{})[k] || '';
 function keyDate(d){
+  const st = computeLiveStatus(d);
   const m = {upcoming:['Opens','open'], open:['Closes','close'], closing_today:['Closes','close'], closed:['Allotment','allotment'],
              allotment_today:['Allotment','allotment'], allotted:['Listing','listing'], listing_today:['Listing','listing'],
-             listed:['Listed','listing'], withdrawn:['Was to open','open']}[d.status] || ['Opens','open'];
+             listed:['Listed','listing'], withdrawn:['Was to open','open']}[st] || ['Opens','open'];
   return [m[0], D(d, m[1])];
 }
 const COLS = {
@@ -571,7 +635,7 @@ function colset(){ return COLSETS[S.tab === 'apply' ? 'apply' : 'all']; }
 /* Table order (as requested): Upcoming -> Open -> Closed -> Listed, newest date first inside each group. */
 const GROUP_OF = {upcoming:0, open:1, closing_today:1, closed:2, allotment_today:2, allotted:2,
                   listing_today:2, withdrawn:3, listed:4};
-function groupOf(d){ return GROUP_OF[d.status] ?? 5; }
+function groupOf(d){ return GROUP_OF[computeLiveStatus(d)] ?? 5; }
 function groupDate(d){                      // the date that decides the order inside a group
   const g = groupOf(d);
   if (g === 0) return D(d,'open') || D(d,'close') || D(d,'listing') || '';
@@ -637,6 +701,7 @@ async function api(path, opt){
 }
 async function loadList(){
   const d = await api('/api/ipos');
+  updateLiveStatuses(d.ipos);
   S.data = d; S.version = d.version; S.lastFetch = Date.now();
   KEYFILE = {}; for (const x of (d.ipos||[])) if (x.keyfile) KEYFILE[x.key] = x.keyfile;
   renderChrome(); if (!S.detailKey) renderList();
@@ -1486,7 +1551,10 @@ async function loadDetail(key, silent){
   if (!S.subhist) loadSubhist().then(() => { if (S.detailKey) renderDetail(); });
   if (!S.cmp) loadCompare().then(() => { if (S.detailKey) renderDetail(); });
   if (!silent){ $('#vDetail').innerHTML = '<div class="empty">Loading…</div>'; }
-  try{ S.detail = await api('/api/ipo/' + encodeURIComponent(key)); }
+  try{
+    S.detail = await api('/api/ipo/' + encodeURIComponent(key));
+    if (S.detail && S.detail.doc) updateLiveStatuses([S.detail.doc]);
+  }
   catch(e){ $('#vDetail').innerHTML = '<div class="empty">IPO not found. <a href="#/">Back to list</a></div>'; return; }
   renderDetail();
 }
